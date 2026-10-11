@@ -27,6 +27,8 @@ use tauri_plugin_positioner::{Position, WindowExt};
 struct AppState {
     engine: Mutex<Engine>,
     dirty: Arc<AtomicBool>,
+    popup: Mutex<Option<serde_json::Value>>,
+    settings_window: AtomicBool,
 }
 
 #[derive(serde::Deserialize)]
@@ -78,9 +80,9 @@ fn action(
             engine.configure(settings)?;
             let native_result = (|| -> Result<(), String> {
                 if engine.data.settings.autostart {
-                    app.autolaunch().enable().map_err(|e| e.to_string())?;
+                    apply_autostart(&app, true)?;
                 } else {
-                    app.autolaunch().disable().map_err(|e| e.to_string())?;
+                    apply_autostart(&app, false)?;
                 }
                 apply_icon(&app, &engine.data.settings)
             })();
@@ -89,9 +91,9 @@ fn action(
                 engine.displayed_ids = displayed;
                 let rollback = engine.persist();
                 if engine.data.settings.autostart {
-                    let _ = app.autolaunch().enable();
+                    let _ = apply_autostart(&app, true);
                 } else {
-                    let _ = app.autolaunch().disable();
+                    let _ = apply_autostart(&app, false);
                 }
                 let _ = apply_icon(&app, &engine.data.settings);
                 return Err(format!(
@@ -160,6 +162,19 @@ fn open_app_data(app: tauri::AppHandle, state: State<AppState>) -> Result<(), St
         .open_path(engine.data_dir.to_string_lossy(), None::<&str>)
         .map_err(|e| e.to_string())
 }
+fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    // Isolated debug tests must not change the installed app's login preference.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("TRAY_TASKS_DATA_DIR").is_some() {
+        return Ok(());
+    }
+    if enabled {
+        app.autolaunch().enable()
+    } else {
+        app.autolaunch().disable()
+    }
+    .map_err(|e| e.to_string())
+}
 fn apply_icon(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id("tray") {
         let icon = if settings.icon_path.is_empty() {
@@ -192,28 +207,208 @@ fn position(window: &tauri::WebviewWindow) {
         let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
     }
 }
+
 #[tauri::command]
-fn resize_main(window: tauri::WebviewWindow, height: f64) -> Result<(), String> {
+fn open_taskbar_settings(app: tauri::AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url("ms-settings:taskbar", None::<&str>)
+        .map_err(|e| e.to_string())
+}
+fn popup_position(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or("Missing task window")?;
+    let popup = app
+        .get_webview_window(label)
+        .ok_or("Missing popup window")?;
+    let mut origin = main.outer_position().map_err(|e| e.to_string())?;
+    let main_size = main.outer_size().map_err(|e| e.to_string())?;
+    let popup_size = popup.outer_size().map_err(|e| e.to_string())?;
+    let scale = main.scale_factor().map_err(|e| e.to_string())?;
+    let gap = (8.0 * scale) as i32;
+    if let Some(monitor) = main.current_monitor().map_err(|e| e.to_string())? {
+        let area = monitor.work_area();
+        let min_y = area.position.y + popup_size.height as i32 + gap;
+        let max_y = area.position.y + area.size.height as i32 - main_size.height as i32;
+        if min_y > max_y {
+            let available = (area.size.height as i32 - popup_size.height as i32 - gap - 8).max(80);
+            main.set_size(tauri::PhysicalSize::new(main_size.width, available as u32))
+                .map_err(|e| e.to_string())?;
+        }
+        origin.y = origin.y.max(min_y);
+        origin.x = origin.x.clamp(
+            area.position.x,
+            (area.position.x + area.size.width as i32 - main_size.width as i32)
+                .max(area.position.x),
+        );
+        main.set_position(origin).map_err(|e| e.to_string())?;
+    }
+    popup
+        .set_position(tauri::PhysicalPosition::new(
+            origin.x,
+            origin.y - popup_size.height as i32 - gap,
+        ))
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn resize_main(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+    height: f64,
+    settings: bool,
+) -> Result<(), String> {
     if window.label() != "main" || !height.is_finite() {
         return Err("Invalid resize request".into());
+    }
+    let changed = state.settings_window.swap(settings, Ordering::Relaxed) != settings;
+    let max = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .map(|m| f64::from(m.work_area().size.height) / m.scale_factor() - 32.0)
+        .unwrap_or(700.0);
+    if changed {
+        window
+            .set_decorations(settings)
+            .map_err(|e| e.to_string())?;
+        window
+            .set_skip_taskbar(!settings)
+            .map_err(|e| e.to_string())?;
+        window
+            .set_always_on_top(!settings)
+            .map_err(|e| e.to_string())?;
+    }
+    window
+        .set_size(tauri::LogicalSize::new(
+            if settings { 640.0 } else { 320.0 },
+            height.clamp(80.0, max.max(80.0)),
+        ))
+        .map_err(|e| e.to_string())?;
+    if settings {
+        if changed {
+            window.center().map_err(|e| e.to_string())?;
+        }
+    } else {
+        position(&window);
+        if app
+            .get_webview_window("popup")
+            .is_some_and(|w| w.is_visible().unwrap_or(false))
+        {
+            popup_position(&app, "popup")?;
+        }
+    }
+    Ok(())
+}
+fn hide_popup(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("popup") {
+        let _ = window.hide();
+    }
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut context) = state.popup.lock() {
+            *context = None;
+        }
+    }
+    let _ = app.emit("popup-closed", ());
+}
+#[tauri::command]
+fn close_popup(app: tauri::AppHandle) {
+    hide_popup(&app);
+}
+#[tauri::command]
+fn get_popup(state: State<AppState>) -> Result<Option<serde_json::Value>, String> {
+    Ok(state.popup.lock().map_err(|_| "Popup unavailable")?.clone())
+}
+#[tauri::command]
+fn open_popup(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+    context: serde_json::Value,
+) -> Result<(), String> {
+    if window.label() != "main" || context["token"].as_u64().is_none() {
+        return Err("Invalid popup request".into());
+    }
+    let height = match context["modal"]["kind"].as_str() {
+        Some("delete") => 180.0,
+        Some("postpone") => 290.0,
+        Some("time") => 235.0,
+        Some("abandon") => 240.0,
+        _ => return Err("Invalid popup kind".into()),
+    };
+    *state.popup.lock().map_err(|_| "Popup unavailable")? = Some(context.clone());
+    let popup = app
+        .get_webview_window("popup")
+        .ok_or("Missing popup window")?;
+    popup
+        .set_size(tauri::LogicalSize::new(320.0, height))
+        .map_err(|e| e.to_string())?;
+    popup_position(&app, "popup")?;
+    app.emit_to("popup", "popup-context", context)
+        .map_err(|e| e.to_string())?;
+    popup.show().map_err(|e| e.to_string())?;
+    popup.set_focus().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn choose_popup(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+    choice: serde_json::Value,
+) -> Result<(), String> {
+    if window.label() != "popup" {
+        return Err("Invalid popup choice".into());
+    }
+    let context = state.popup.lock().map_err(|_| "Popup unavailable")?;
+    if context
+        .as_ref()
+        .is_none_or(|c| c["token"] != choice["token"])
+    {
+        return Ok(());
+    }
+    app.emit_to("main", "popup-choice", choice)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn resize_popup(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<AppState>,
+    height: f64,
+) -> Result<(), String> {
+    if window.label() != "popup" || !height.is_finite() {
+        return Err("Invalid popup size".into());
+    }
+    if state
+        .popup
+        .lock()
+        .map_err(|_| "Popup unavailable")?
+        .is_none()
+    {
+        return Ok(());
     }
     let max = window
         .current_monitor()
         .map_err(|e| e.to_string())?
-        .map(|m| f64::from(m.work_area().size.height) / m.scale_factor() - 16.0)
-        .unwrap_or(740.0);
+        .map(|m| f64::from(m.work_area().size.height) / m.scale_factor() - 100.0)
+        .unwrap_or(500.0);
     window
         .set_size(tauri::LogicalSize::new(
-            390.0,
-            height.clamp(320.0, max.max(320.0)),
+            320.0,
+            height.clamp(80.0, max.max(80.0)),
         ))
         .map_err(|e| e.to_string())?;
-    position(&window);
-    Ok(())
+    popup_position(&app, "popup")
 }
 fn show_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        position(&window);
+        let settings = app
+            .try_state::<AppState>()
+            .is_some_and(|s| s.settings_window.load(Ordering::Relaxed));
+        if settings {
+            let _ = window.center();
+        } else {
+            position(&window);
+        }
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -257,7 +452,13 @@ fn main() {
             action,
             open_daily,
             open_app_data,
-            resize_main
+            resize_main,
+            open_taskbar_settings,
+            open_popup,
+            close_popup,
+            get_popup,
+            choose_popup,
+            resize_popup
         ])
         .setup(|app| {
             let data_dir = app.path().app_local_data_dir()?;
@@ -273,6 +474,8 @@ fn main() {
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 dirty: dirty.clone(),
+                popup: Mutex::new(None),
+                settings_window: AtomicBool::new(false),
             });
             let open =
                 MenuItem::with_id(app, "open", "Open tasks / 할 일 열기", true, None::<&str>)?;
@@ -327,6 +530,7 @@ fn main() {
                     {
                         if let Some(w) = tray.app_handle().get_webview_window("main") {
                             if w.is_visible().unwrap_or(false) {
+                                hide_popup(tray.app_handle());
                                 let _ = w.hide();
                             } else {
                                 show_main(tray.app_handle());
@@ -405,9 +609,9 @@ fn main() {
                     }
                     if let Some(w) = app_handle.get_webview_window("reminder") {
                         if !snapshot.alerts.is_empty() || snapshot.rollover.is_some() {
-                            let height = (180
-                                + snapshot.alerts.len() * 84
-                                + if snapshot.rollover.is_some() { 220 } else { 0 })
+                            let height = (120
+                                + snapshot.alerts.len() * 72
+                                + if snapshot.rollover.is_some() { 126 } else { 0 })
                             .min(650) as f64;
                             let max = w
                                 .current_monitor()
@@ -417,8 +621,15 @@ fn main() {
                                     f64::from(m.work_area().size.height) / m.scale_factor() - 16.0
                                 })
                                 .unwrap_or(650.0);
-                            let _ = w.set_size(tauri::LogicalSize::new(370.0, height.min(max)));
-                            position(&w);
+                            let _ = w.set_size(tauri::LogicalSize::new(320.0, height.min(max)));
+                            if app_handle
+                                .get_webview_window("main")
+                                .is_some_and(|main| main.is_visible().unwrap_or(false))
+                            {
+                                let _ = popup_position(&app_handle, "reminder");
+                            } else {
+                                position(&w);
+                            }
                             let _ = w.show();
                             if new_alert && snapshot.settings.sound {
                                 play_sound();
@@ -434,6 +645,7 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                hide_popup(window.app_handle());
                 let _ = window.hide();
             }
         })

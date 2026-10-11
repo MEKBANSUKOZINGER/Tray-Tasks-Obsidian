@@ -125,4 +125,5 @@ pub struct Snapshot {
     pub error: Option<String>,
     pub font_family: String,
     pub accent: String,
+    pub theme: String,
 }

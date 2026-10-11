@@ -9,26 +9,55 @@ import {
   escapeHtml as esc,
   localInput,
   reminderBounds,
-  moveTaskGroup,
+  moveTask,
 } from "./utils";
 import { previewAction, previewSnapshot } from "./preview";
 const preview = new URLSearchParams(location.search).has("preview");
 const isReminder =
   new URLSearchParams(location.search).get("window") === "reminder";
+const isPopup = new URLSearchParams(location.search).get("window") === "popup";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 let snapshot: Snapshot;
 let view: "tasks" | "completed" | "reminders" | "settings" = "tasks";
 let draft: Settings | null = null,
   reminderDraft: Record<string, number> = {},
   editing: string | null = null,
-  dragged: string | null = null,
   busy = false;
-let modal: {
+type Modal = {
   kind: "delete" | "postpone" | "time" | "abandon";
   id?: string;
   date?: string;
-} | null = null;
+};
+let modal: Modal | null = null;
 let coreConfirmed = false;
+let adding = false,
+  addText = "",
+  popupToken = 0;
+let openedModal: Modal | null = null;
+let drag: {
+  id: string;
+  pointer: number;
+  x: number;
+  y: number;
+  started: boolean;
+  ids: string[];
+  handle: HTMLElement;
+  ghost?: HTMLElement;
+  frame?: number;
+  lastY: number;
+  offsetY: number;
+} | null = null;
+let suppressClick = false;
+let pendingSnapshot: Snapshot | null = null;
+let popupHeight = 0;
+interface PopupContext {
+  token: number;
+  modal: Modal;
+  snapshot: Snapshot;
+  view: typeof view;
+  reminderDraft: Record<string, number>;
+}
+
 let toast = "",
   toastTimer: ReturnType<typeof setTimeout>;
 const labels = {
@@ -52,7 +81,7 @@ const labels = {
     postpone: "미루기",
     rename: "이름 수정",
     deleteTitle: "이 할 일을 삭제할까요?",
-    deleteNote: "하위 항목도 함께 삭제되며 데일리 노트에 반영됩니다.",
+    deleteNote: "",
     tomorrow: "내일",
     nextWeek: "다음 주 같은 날",
     otherDate: "다른 날",
@@ -100,7 +129,7 @@ const labels = {
       "복구 기록만 해제합니다. 이미 복사된 대상 항목은 남으므로 원본과 대상 노트를 확인해주세요.",
     error: "작업을 완료하지 못했어요",
     data: "저장·백업 폴더 열기",
-    version: "개발 버전 0.1.0",
+    version: "개발 버전 0.2.0",
     editHint: "우클릭하거나 F2를 눌러 이름 수정",
     count: "개",
   },
@@ -175,7 +204,7 @@ const labels = {
       "Only the recovery record is cleared. Already copied tasks remain. Check both notes.",
     error: "Couldn't complete the action",
     data: "Open storage and backups",
-    version: "Development build 0.1.0",
+    version: "Development build 0.2.0",
     editHint: "Right-click or press F2 to rename",
     count: "items",
   },
@@ -254,15 +283,16 @@ async function refresh() {
   }
 }
 function setView(next: typeof view) {
+  const list = app.querySelector(".task-list");
+  if (list) list.scrollTop = 0;
   view = next;
   modal = null;
+  adding = false;
+  addText = "";
   editing = null;
   reminderDraft = {};
   draft = next === "settings" ? structuredClone(snapshot.settings) : null;
   render();
-}
-function header(title: string, subtitle: string) {
-  return `<header><div class="brand" data-tauri-drag-region><div class="brand-icon">${svg("check")}</div><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div></div><div class="header-actions">${button("settings", t("settings"), "gear", "icon-button")}${button("hide", t("cancel"), "close", "icon-button")}</div></header>`;
 }
 function errorBanner() {
   return snapshot.error
@@ -274,22 +304,38 @@ function taskRow(task: Task) {
   const effective = Object.hasOwn(reminderDraft, task.id)
     ? pending
     : task.reminderAt;
-  return `<div class="task ${task.done ? "done" : ""} ${view === "reminders" ? "selecting" : ""} ${pending ? "selected" : ""}" data-id="${esc(task.id)}" style="--depth:${Math.min(task.depth, 5)}">
-<button class="grip icon-button" draggable="${view !== "reminders"}" data-drag="${esc(task.id)}" aria-label="Reorder ${esc(task.title)}">${svg("grip")}</button>
+  return `<div class="task ${task.done ? "done" : ""} ${view === "reminders" ? "selecting" : ""} ${pending ? "selected" : ""}" data-id="${esc(task.id)}">
+<button class="grip icon-button"  data-drag="${esc(task.id)}" aria-label="Reorder ${esc(task.title)}">${svg("grip")}</button>
 ${view === "reminders" ? `<button class="selection-dot ${pending ? "active" : ""}" data-task-action="time" aria-label="${t("chooseTime")}">${pending ? svg("check") : ""}</button>` : `<input type="checkbox" data-check aria-label="${esc(task.title)}" ${task.done ? "checked" : ""}/>`}
 <div class="task-content">${editing === task.id ? `<input id="rename-input" class="rename-input" value="${esc(task.title)}" aria-label="${t("rename")}"/>` : `<button class="task-name" data-task-action="${view === "reminders" ? "time" : "edit"}" title="${t("editHint")}">${esc(task.title)}</button>`}
-${effective ? `<button class="task-time" data-task-action="time">${svg("clock")}${esc(fmtTime(effective!))}</button>` : ""}</div>
+${effective ? `<button class="task-time" data-task-action="time" title="${esc(fmtTime(effective!))}" aria-label="${esc(fmtTime(effective!))}">${svg("clock")}</button>` : ""}</div>
 ${view !== "reminders" ? `<div class="task-actions"><button class="icon-button danger" data-task-action="delete" title="${t("delete")}" aria-label="${t("delete")} ${esc(task.title)}">${svg("trash")}</button>${!task.done ? `<button class="icon-button" data-task-action="postpone" title="${t("postpone")}" aria-label="${t("postpone")} ${esc(task.title)}">${svg("next")}</button>` : ""}</div>` : ""}</div>`;
 }
 function listView() {
-  const done = view === "completed",
-    tasks = snapshot.tasks.filter((task) => task.done === done);
-  return `${header(view === "reminders" ? t("reminders") : done ? t("completed") : t("today"), fmtDate(snapshot.date))}${errorBanner()}
-<div class="list-meta"><span class="dot"></span><span>${view === "reminders" ? t("reminderHint") : `${tasks.length} ${t("count")} · ${esc(snapshot.settings.dailyFolder || "/")}`}</span><button class="icon-button" data-action="refresh" title="${t("refresh")}">${svg("refresh")}</button></div>
-<main class="task-list" style="--rows:${snapshot.settings.visibleRows}">${tasks.length ? tasks.map(taskRow).join("") : `<div class="empty"><div class="empty-icon">${svg(done ? "check" : "plus")}</div><h2>${done ? t("completedEmpty") : t("empty")}</h2><p>${t("emptySub")}</p></div>`}</main>
-${!done && view !== "reminders" ? `<form id="add-form" class="add-form"><span>${svg("plus")}</span><input id="add-input" name="title" autocomplete="off" placeholder="${t("add")}" aria-label="${t("add")}"/><button type="submit" class="add-submit" aria-label="${t("save")}">↵</button></form>` : ""}
-<footer>${view === "reminders" ? `${button("back", t("cancel"), "back")}${button("apply-reminders", t("apply"), "check", "primary")}` : done ? button("back", t("back"), "back") + button("daily", t("daily"), "calendar") + button("reminders", t("reminder"), "clock") : `${button("completed", t("completed"), "check")}${button("daily", t("daily"), "calendar")}${button("reminders", t("reminder"), "clock")}`}</footer>
-<div class="status"><span>Obsidian daily notes</span><span>${snapshot.tasks.filter((t) => !t.done).length} to do</span></div>`;
+  const done = view === "completed";
+  const tasks = snapshot.tasks.filter((task) => task.done === done);
+  const add =
+    !done && view !== "reminders"
+      ? adding
+        ? `<form id="add-form" class="task new-task"><input type="checkbox" disabled/><input id="add-input" name="title" value="${esc(addText)}" autocomplete="off" aria-label="${t("add")}" required/><button type="submit" aria-label="${t("save")}">↵</button></form>`
+        : button("add", t("add"), "plus", "add-button")
+      : "";
+  return `${errorBanner()}<main class="task-list">${tasks.map(taskRow).join("")}${add}${!tasks.length && !add ? `<div class="empty">${done ? t("completedEmpty") : t("empty")}</div>` : ""}</main>
+  <footer>${
+    view === "reminders"
+      ? button("back", t("cancel"), "back") +
+        button("apply-reminders", t("apply"), "check", "primary")
+      : button(
+          done ? "back" : "completed",
+          done ? t("back") : t("completed"),
+          done ? "back" : "check",
+          "icon-button",
+        ) +
+        button("daily", t("daily"), "calendar", "icon-button") +
+        button("reminders", t("reminder"), "clock", "icon-button") +
+        button("settings", t("settings"), "gear", "icon-button") +
+        button("hide", t("cancel"), "close", "icon-button")
+  }</footer>`;
 }
 function field(key: keyof Settings, label: Label, hint?: Label, type = "text") {
   return `<label class="field"><span>${t(label)}</span><input id="setting-${key}" name="${key}" type="${type}" value="${esc(String(draft![key]))}"/>${hint ? `<small>${t(hint)}</small>` : ""}</label>`;
@@ -297,18 +343,18 @@ function field(key: keyof Settings, label: Label, hint?: Label, type = "text") {
 function settingsView() {
   const first = !snapshot.settings.vaultPath;
   draft ??= structuredClone(snapshot.settings);
-  return `${header(first ? "Tray Tasks" : t("settings"), first ? t("welcome") : t("version"))}<form id="settings-form" class="settings-form">
-${first ? `<div class="welcome"><h2>${t("welcome")}</h2><p>${t("welcomeSub")}</p></div>` : ""}
+  return `<form id="settings-form" class="settings-form">
+
 <label class="field"><span>${t("language")}</span><select id="setting-language" name="language"><option value="ko" ${draft.language === "ko" ? "selected" : ""}>한국어</option><option value="en" ${draft.language === "en" ? "selected" : ""}>English</option></select></label>
 <label class="field"><span>${t("vault")}</span><div class="path-input"><input id="setting-vaultPath" name="vaultPath" value="${esc(draft.vaultPath)}" required placeholder="C:\\Vaults\\My Vault"/>${button("browse-vault", t("browse"), "folder")}</div></label>
-${field("dailyFolder", "folder", "folderHint")}<div class="setup-note">${svg("calendar")}<p>${t("coreHint")}</p></div>
+${field("dailyFolder", "folder")}<div class="setup-note">${svg("calendar")}<p>${t("coreHint")}</p></div>
 ${first ? `<label class="toggle core-confirm"><input name="coreConfirm" type="checkbox" ${coreConfirmed ? "checked" : ""} required/><span>${t("coreConfirm")}</span></label>` : ""}
-${field("readHeading", "readHeading", "readHint")}${field("addHeading", "addHeading", "addHint")}
+${field("readHeading", "readHeading")}${field("addHeading", "addHeading")}
 <div class="field-grid">${field("visibleRows", "rows", undefined, "number")}${field("fontSize", "font", undefined, "number")}${field("reminderFontSize", "reminderFont", undefined, "number")}${field("displaySeconds", "display", undefined, "number")}${field("repeatMinutes", "repeat", undefined, "number")}</div>
 <label class="toggle"><input name="sound" type="checkbox" ${draft.sound ? "checked" : ""}/><span>${t("sound")}</span></label>
 <label class="toggle"><input name="autostart" type="checkbox" ${draft.autostart ? "checked" : ""}/><span>${t("autostart")}</span></label>
 <div class="field"><span>${t("icon")}</span><small>${esc(draft.iconPath || t("resetIcon"))}</small><div class="inline-buttons">${button("browse-icon", t("browse"), "folder")}${button("reset-icon", t("resetIcon"))}</div></div>
-${!first ? button("data", t("data"), "folder", "data-button") : ""}<p class="settings-footnote">${t("localOnly")}</p>
+${!first ? button("data", t("data"), "folder", "data-button") : ""}${button("taskbar-settings", snapshot.settings.language === "ko" ? "작업표시줄 아이콘 설정" : "Taskbar icon settings", undefined, "data-button")}
 <div class="settings-buttons">${!first ? button("back", t("cancel")) : ""}<button type="submit" class="primary">${first ? t("connect") : t("save")}</button></div></form>`;
 }
 function modalView() {
@@ -316,7 +362,7 @@ function modalView() {
   const task = snapshot.tasks.find((t) => t.id === modal!.id);
   let content = "";
   if (modal.kind === "delete")
-    content = `<h2>${t("deleteTitle")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><p>${t("deleteNote")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-delete", t("delete"), undefined, "danger-solid")}</div>`;
+    content = `<h2>${t("deleteTitle")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-delete", t("delete"), undefined, "danger-solid")}</div>`;
   if (modal.kind === "abandon")
     content = `<h2>${t("abandon")}</h2><p>${t("abandonNote")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-abandon", t("apply"), undefined, "primary")}</div>`;
   if (modal.kind === "postpone") {
@@ -332,14 +378,14 @@ ${modal.date ? `<button class="date-option chosen" data-date="${modal.date}"><sp
       due =
         (reminderDraft[modal.id!] || task?.reminderAt) ??
         Math.ceil((Date.now() + 600000) / 60000) * 60;
-    content = `<h2>${t("chooseTime")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><label class="field"><input id="reminder-time" type="datetime-local" min="${bounds.min}" max="${bounds.max}" value="${localInput(new Date(due * 1000))}" required/></label><p>${t("timeHint")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("choose-time", t("save"), undefined, "primary")}</div>${task?.reminderAt ? button("clear-reminder", t("clearReminder"), undefined, "text-danger") : ""}`;
+    content = `<h2>${t("chooseTime")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><label class="field"><input id="reminder-time" type="datetime-local" min="${bounds.min}" max="${bounds.max}" value="${localInput(new Date(due * 1000))}" required/></label><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("choose-time", t("save"), undefined, "primary")}</div>${task?.reminderAt ? button("clear-reminder", t("clearReminder"), undefined, "text-danger") : ""}`;
   }
-  return `<div class="modal-overlay"><section class="modal" role="dialog" aria-modal="true">${content}</section></div>`;
+  return `<section class="modal" role="dialog" aria-modal="false">${content}</section>`;
 }
 function reminderView() {
   const pending = snapshot.rollover;
-  return `<div class="reminder-shell"><div class="notification-brand"><div class="brand-icon">${svg("clock")}</div><span>Tray Tasks</span></div>
-${pending ? `<section class="rollover"><h2>${t("rolloverTitle")}</h2><p>${t("rolloverBody")}</p><small>${pending.taskIds.length} ${t("count")} · ${pending.sourceDate}</small><p class="hint">${t("rolloverNote")}</p><div class="modal-buttons">${button("rollover-no", t("no"))}${button("rollover-yes", t("yes"), undefined, "primary")}</div></section>` : ""}
+  return `<div class="reminder-shell">
+${pending ? `<section class="rollover"><p>${t("rolloverBody")}</p><small>${pending.taskIds.length} ${t("count")} · ${pending.sourceDate}</small><div class="modal-buttons">${button("rollover-no", t("no"))}${button("rollover-yes", t("yes"), undefined, "primary")}</div></section>` : ""}
 ${snapshot.alerts.length ? `<section class="alert-section"><h2>${snapshot.alerts.some((a) => a.overdue) ? t("overdue") : t("reminder")}</h2><div class="alert-list">${snapshot.alerts.map((a) => `<article class="alert-item"><span class="dot"></span><div><p>${esc(a.title)}</p><small>${esc(fmtTime(a.dueAt))}</small></div></article>`).join("")}</div>${button("acknowledge", t("acknowledge"), "check", "primary acknowledge")}</section>` : ""}
 ${!pending && !snapshot.alerts.length ? `<div class="empty"><h2>${t("empty")}</h2></div>` : ""}${snapshot.error ? `<p class="error">${esc(snapshot.error)}</p>` : ""}</div>`;
 }
@@ -371,7 +417,8 @@ function captureDraft(form: HTMLFormElement) {
   draft = next;
 }
 function render() {
-  if (!snapshot) return;
+  if (!snapshot || drag?.started) return;
+  const scrollTop = app.querySelector(".task-list")?.scrollTop ?? 0;
   const active = document.activeElement as HTMLInputElement | null,
     focusId = active?.id,
     value = active?.tagName === "INPUT" ? active.value : undefined;
@@ -393,16 +440,42 @@ function render() {
     "--reminder-font",
     snapshot.settings.reminderFontSize + "px",
   );
-  app.className = isReminder ? "notification-app" : "";
-  app.innerHTML =
-    (isReminder
-      ? reminderView()
+  const systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme =
+    snapshot.theme === "system"
+      ? systemDark
+        ? "dark"
+        : "light"
+      : snapshot.theme;
+  app.className = isPopup
+    ? "popup-app"
+    : isReminder
+      ? "notification-app"
       : view === "settings"
-        ? settingsView()
-        : listView()) +
-    (!isReminder ? modalView() : "") +
+        ? "settings-app"
+        : "list-app";
+  document.body.classList.toggle("preview-mode", preview);
+
+  app.innerHTML =
+    (isPopup
+      ? modalView()
+      : isReminder
+        ? reminderView()
+        : view === "settings"
+          ? settingsView()
+          : listView()) +
+    (preview && !isReminder && !isPopup ? modalView() : "") +
     (toast ? `<div class="toast" role="alert">${esc(toast)}</div>` : "");
+  const list = app.querySelector(".task-list");
+  if (list) list.scrollTop = scrollTop;
   app.toggleAttribute("data-busy", busy);
+  if (isPopup && modal) {
+    const height = app.querySelector<HTMLElement>(".modal")!.scrollHeight + 2;
+    if (height !== popupHeight) {
+      popupHeight = height;
+      void invoke("resize_popup", { height }).catch((e) => console.error(e));
+    }
+  }
   if (focusId) {
     const input = document.getElementById(focusId) as HTMLInputElement | null;
     if (input) {
@@ -434,17 +507,44 @@ function render() {
       render();
     }
   });
-  if (!preview && !isReminder) {
+  if (adding && !focusId) {
+    document.getElementById("add-input")?.focus();
+    document.querySelector(".new-task")?.scrollIntoView({ block: "nearest" });
+  }
+  if (!preview && !isReminder && !isPopup) {
+    if (modal && modal !== openedModal) {
+      openedModal = modal;
+      popupToken++;
+      void invoke("open_popup", {
+        context: { token: popupToken, modal, snapshot, view, reminderDraft },
+      }).catch((e) => {
+        modal = null;
+        openedModal = null;
+        notify(String(e));
+      });
+    } else if (!modal && openedModal) {
+      openedModal = null;
+      void invoke("close_popup");
+    }
+
+    const count = snapshot.tasks.filter(
+      (task) => task.done === (view === "completed"),
+    ).length;
+    const rows = Math.max(
+      1,
+      Math.min(
+        snapshot.settings.visibleRows,
+        count + (view === "tasks" ? 1 : 0),
+      ),
+    );
+    const rowHeight = Math.max(36, snapshot.settings.fontSize + 22);
     const height =
       view === "settings"
-        ? 740
-        : Math.min(
-            680,
-            190 +
-              snapshot.settings.visibleRows * 56 +
-              (snapshot.error ? 110 : 0),
-          );
-    void invoke("resize_main", { height }).catch((e) => console.error(e));
+        ? 570
+        : rows * rowHeight + 50 + (snapshot.error ? 100 : 0);
+    void invoke("resize_main", { height, settings: view === "settings" }).catch(
+      (e) => console.error(e),
+    );
   }
 }
 app.addEventListener("submit", async (e) => {
@@ -453,20 +553,21 @@ app.addEventListener("submit", async (e) => {
   if (form.id === "add-form") {
     const input = form.elements.namedItem("title") as HTMLInputElement;
     if (await dispatch({ kind: "add", title: input.value })) {
-      const next = document.getElementById("add-input") as HTMLInputElement;
-      next.value = "";
-      next.focus();
+      adding = false;
+      addText = "";
+      render();
     }
   }
   if (form.id === "settings-form") {
     captureDraft(form);
     if (await dispatch({ kind: "configure", settings: draft! })) {
       setView("tasks");
-      notify(t("ready"));
     }
   }
 });
 app.addEventListener("input", (e) => {
+  if ((e.target as HTMLInputElement).id === "add-input")
+    addText = (e.target as HTMLInputElement).value;
   const form = (e.target as HTMLElement).closest<HTMLFormElement>(
     "#settings-form",
   );
@@ -516,32 +617,120 @@ app.addEventListener("keydown", (e) => {
     }
   }
 });
-app.addEventListener("dragstart", (e) => {
-  const handle = (e.target as HTMLElement).closest<HTMLElement>("[data-drag]");
-  if (!handle) {
+
+function cancelDrag() {
+  if (!drag) return;
+  drag.ghost?.remove();
+  if (drag.frame) cancelAnimationFrame(drag.frame);
+  drag = null;
+  if (pendingSnapshot) {
+    snapshot = pendingSnapshot;
+    pendingSnapshot = null;
+  }
+  render();
+}
+app.addEventListener("pointerdown", (e) => {
+  if (modal && !isPopup && !(e.target as HTMLElement).closest(".modal")) {
     e.preventDefault();
+    e.stopImmediatePropagation();
+    modal = null;
+    render();
     return;
   }
-  dragged = handle.dataset.drag!;
-  e.dataTransfer?.setData("text/plain", dragged);
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-});
-app.addEventListener("dragover", (e) => {
-  if ((e.target as HTMLElement).closest("[data-id]")) e.preventDefault();
-});
-app.addEventListener("drop", async (e) => {
+  const handle = (e.target as HTMLElement).closest<HTMLElement>("[data-drag]");
+  if (!handle || view === "reminders" || busy || e.button !== 0) return;
   e.preventDefault();
-  const row = (e.target as HTMLElement).closest<HTMLElement>("[data-id]");
-  if (row && dragged)
-    await dispatch({
-      kind: "reorder",
-      ids: moveTaskGroup(snapshot.tasks, dragged, row.dataset.id!),
-    });
-  dragged = null;
+  app.setPointerCapture(e.pointerId);
+  drag = {
+    id: handle.dataset.drag!,
+    pointer: e.pointerId,
+    x: e.clientX,
+    y: e.clientY,
+    lastY: e.clientY,
+    offsetY:
+      e.clientY -
+      handle.closest<HTMLElement>(".task")!.getBoundingClientRect().top,
+    started: false,
+    ids: snapshot.tasks.map((t) => t.id),
+    handle,
+  };
+});
+function updateDrag() {
+  if (!drag?.started) return;
+  const list = app.querySelector<HTMLElement>(".task-list")!;
+  const rect = list.getBoundingClientRect();
+  if (drag.lastY < rect.top + 20) list.scrollTop -= 6;
+  if (drag.lastY > rect.bottom - 20) list.scrollTop += 6;
+  const row = document
+    .elementFromPoint(
+      Math.min(rect.right - 10, Math.max(rect.left + 30, drag.x)),
+      Math.min(rect.bottom - 2, Math.max(rect.top + 2, drag.lastY)),
+    )
+    ?.closest<HTMLElement>(".task[data-id]");
+  if (row && row.dataset.id !== drag.id) {
+    const box = row.getBoundingClientRect();
+    const current = drag.ids.map((id) =>
+      snapshot.tasks.find((t) => t.id === id)!,
+    );
+    drag.ids = moveTask(
+      current,
+      drag.id,
+      row.dataset.id!,
+      drag.lastY > box.top + box.height / 2,
+    );
+    const source = app.querySelector<HTMLElement>(`[data-id="${drag.id}"]`)!;
+    const after = drag.ids.indexOf(drag.id) > drag.ids.indexOf(row.dataset.id!);
+    if (after) row.after(source);
+    else row.before(source);
+  }
+  drag.frame = requestAnimationFrame(updateDrag);
+}
+app.addEventListener("pointermove", (e) => {
+  if (!drag || e.pointerId !== drag.pointer) return;
+  drag.lastY = e.clientY;
+  if (!drag.started && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) {
+    drag.started = true;
+    const row = drag.handle.closest<HTMLElement>(".task")!;
+    const box = row.getBoundingClientRect();
+    drag.ghost = row.cloneNode(true) as HTMLElement;
+    drag.ghost.removeAttribute("data-id");
+    drag.ghost.className = "task drag-ghost";
+    drag.ghost.style.width = box.width + "px";
+    drag.ghost.style.left = box.left + "px";
+    document.body.append(drag.ghost);
+    row.classList.add("drag-placeholder");
+    updateDrag();
+  }
+  if (drag.ghost) drag.ghost.style.top = e.clientY - drag.offsetY + "px";
+});
+app.addEventListener("pointerup", async (e) => {
+  if (!drag || drag.pointer !== e.pointerId) return;
+  const current = drag;
+  const list = app.querySelector(".task-list")!.getBoundingClientRect();
+  const inside =
+    e.clientX >= list.left &&
+    e.clientX <= list.right &&
+    e.clientY >= list.top &&
+    e.clientY <= list.bottom;
+  suppressClick = current.started;
+  cancelDrag();
+  setTimeout(() => {
+    suppressClick = false;
+  }, 0);
+  if (current.started && inside)
+    await dispatch({ kind: "reorder", ids: current.ids });
+});
+app.addEventListener("pointercancel", cancelDrag);
+app.addEventListener("lostpointercapture", () => {
+  if (drag) cancelDrag();
 });
 app.addEventListener("click", async (e) => {
   const target = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
-  if (!target || busy) return;
+  if (!target || busy || suppressClick) return;
+  if (isPopup) {
+    await popupChoice(target);
+    return;
+  }
   const taskAction = target.dataset.taskAction,
     id = target.closest<HTMLElement>("[data-id]")?.dataset.id;
   if (taskAction && id) {
@@ -571,6 +760,14 @@ app.addEventListener("click", async (e) => {
     return;
   }
   switch (target.dataset.action) {
+    case "add":
+      adding = true;
+      addText = "";
+      render();
+      break;
+    case "taskbar-settings":
+      if (!preview) await invoke("open_taskbar_settings");
+      break;
     case "settings":
       setView("settings");
       break;
@@ -723,6 +920,20 @@ app.addEventListener("click", async (e) => {
 });
 document.addEventListener("keydown", async (e) => {
   if (e.key === "Escape") {
+    if (drag) {
+      cancelDrag();
+      return;
+    }
+    if (isPopup) {
+      if (!preview) await invoke("close_popup");
+      return;
+    }
+    if (adding) {
+      adding = false;
+      addText = "";
+      render();
+      return;
+    }
     if (modal) {
       modal = null;
       render();
@@ -766,19 +977,118 @@ async function start() {
     if (mode === "rollover")
       snapshot.rollover = { sourceDate: "2026-10-10", taskIds: ["a", "b"] };
   }
-  render();
+  if (isPopup) {
+    await listen<PopupContext>("popup-context", (event) =>
+      applyPopup(event.payload),
+    );
+    const context = await invoke<PopupContext | null>("get_popup");
+    if (context) applyPopup(context);
+  } else render();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () =>
+    render(),
+  );
   if (!preview) {
+    await listen("popup-closed", () => {
+      modal = null;
+      openedModal = null;
+      render();
+    });
+    if (!isPopup)
+      await listen<any>("popup-choice", (event) =>
+        receivePopupChoice(event.payload),
+      );
     await listen<Snapshot>("snapshot", (event) => {
+      if (drag) {
+        pendingSnapshot = event.payload;
+        return;
+      }
       snapshot = event.payload;
       render();
     });
     await listen("show-settings", () => setView("settings"));
     await listen<string>("app-error", (event) => notify(event.payload));
-    if (!isReminder)
+    if (!isReminder && !isPopup)
       await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-        if (!focused && view !== "settings" && !modal && !editing)
+        if (
+          !focused &&
+          view !== "settings" &&
+          !modal &&
+          !editing &&
+          !adding &&
+          !drag
+        )
           void getCurrentWindow().hide();
       });
+  }
+}
+
+function applyPopup(context: PopupContext) {
+  snapshot = context.snapshot;
+  modal = context.modal;
+  popupToken = context.token;
+  view = context.view;
+  reminderDraft = context.reminderDraft;
+  render();
+}
+async function popupChoice(target: HTMLButtonElement) {
+  if (!modal) return;
+  if (target.dataset.action === "close-modal") {
+    await invoke("close_popup");
+    return;
+  }
+  const choice: { token: number; kind: string; date?: string; due?: number } = {
+    token: popupToken,
+    kind: target.dataset.action ?? "postpone",
+    date: target.dataset.date,
+  };
+  if (choice.kind === "choose-time") {
+    const input = document.getElementById("reminder-time") as HTMLInputElement;
+    if (!input.reportValidity()) return;
+    choice.due = Math.floor(new Date(input.value).getTime() / 1000);
+  }
+  await invoke("choose_popup", { choice });
+}
+async function receivePopupChoice(choice: {
+  token: number;
+  kind: string;
+  date?: string;
+  due?: number;
+}) {
+  if (!modal || choice.token !== popupToken || busy) return;
+  const id = modal.id;
+  modal = null;
+  render();
+  switch (choice.kind) {
+    case "confirm-delete":
+      if (id) await dispatch({ kind: "delete", id });
+      break;
+    case "confirm-abandon":
+      await dispatch({ kind: "abandonRecovery" });
+      break;
+    case "postpone":
+      if (id && choice.date)
+        await dispatch({ kind: "postpone", id, date: choice.date });
+      break;
+    case "choose-time":
+      if (id && choice.due) {
+        if (view === "reminders") {
+          reminderDraft[id] = choice.due;
+          render();
+        } else
+          await dispatch({
+            kind: "reminders",
+            selections: { [id]: choice.due },
+          });
+      }
+      break;
+    case "clear-reminder":
+      if (id) {
+        if (view === "reminders") {
+          reminderDraft[id] = 0;
+          render();
+        } else await dispatch({ kind: "clearReminder", id });
+      }
+      break;
   }
 }
 void start().catch((error) => {

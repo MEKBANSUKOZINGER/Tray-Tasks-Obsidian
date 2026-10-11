@@ -18,7 +18,8 @@ let state: Snapshot = {
   settings,
   date: "2026-10-11",
   fontFamily: "Segoe UI",
-  accent: "#147d64",
+  accent: "#8a5cf5",
+  theme: "dark",
   error: null,
   recoveryPending: false,
   rollover: null,
@@ -44,8 +45,8 @@ let state: Snapshot = {
       id: "c",
       title: "자정 이월 동작 테스트하기",
       done: false,
-      depth: 1,
-      parentId: "b",
+      depth: 0,
+      parentId: null,
       reminderAt: null,
     },
     {
@@ -95,9 +96,7 @@ export function previewAction(action: Action): Snapshot {
       break;
     case "delete":
     case "postpone":
-      state.tasks = state.tasks.filter(
-        (t) => t.id !== action.id && t.parentId !== action.id,
-      );
+      state.tasks = state.tasks.filter((t) => t.id !== action.id);
       break;
     case "reminders":
       for (const [id, due] of Object.entries(action.selections))

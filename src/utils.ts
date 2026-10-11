@@ -27,28 +27,17 @@ export function reminderBounds(now = new Date()): { min: string; max: string } {
   const rounded = new Date(Math.ceil(now.getTime() / 60000) * 60000);
   return { min: localInput(rounded), max: localInput(next) };
 }
-export function moveTaskGroup(
+
+export function moveTask(
   tasks: Task[],
   fromId: string,
   toId: string,
+  after = false,
 ): string[] {
-  const from = tasks.find((t) => t.id === fromId),
-    to = tasks.find((t) => t.id === toId);
-  if (!from || !to || fromId === toId || from.parentId !== to.parentId)
-    return tasks.map((t) => t.id);
-  const group = new Set<string>([fromId]);
-  for (const task of tasks)
-    if (task.parentId && group.has(task.parentId)) group.add(task.id);
-  const moved = tasks.filter((t) => group.has(t.id));
-  const rest = tasks.filter((t) => !group.has(t.id));
-  let index = rest.findIndex((t) => t.id === toId);
-  if (tasks.indexOf(from) < tasks.indexOf(to)) {
-    const targetGroup = new Set<string>([toId]);
-    for (const task of rest)
-      if (task.parentId && targetGroup.has(task.parentId))
-        targetGroup.add(task.id);
-    while (index < rest.length && targetGroup.has(rest[index].id)) index++;
-  }
-  rest.splice(index, 0, ...moved);
-  return rest.map((t) => t.id);
+  const ids = tasks.map((task) => task.id);
+  if (fromId === toId || !ids.includes(fromId) || !ids.includes(toId))
+    return ids;
+  const rest = ids.filter((id) => id !== fromId);
+  rest.splice(rest.indexOf(toId) + Number(after), 0, fromId);
+  return rest;
 }

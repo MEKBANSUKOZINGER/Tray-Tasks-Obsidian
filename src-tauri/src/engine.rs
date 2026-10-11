@@ -190,15 +190,9 @@ impl Engine {
         self.persist()
     }
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
-        let (_, text) = self.today_text()?;
-        let task = markdown::find(&text, id)?;
-        let ids: HashSet<_> = markdown::parse(&text[task.block], "")
-            .into_iter()
-            .map(|t| t.id)
-            .collect();
         self.edit_today(|text| markdown::remove(text, id))?;
-        self.data.reminders.retain(|id, _| !ids.contains(id));
-        self.displayed_ids.retain(|id| !ids.contains(id));
+        self.data.reminders.remove(id);
+        self.displayed_ids.retain(|active| active != id);
         self.persist()
     }
     pub fn reorder(&mut self, ids: Vec<String>) -> Result<(), String> {
@@ -254,7 +248,7 @@ impl Engine {
             new_id,
             transfer_reminder: rollover,
         });
-        // The journal contains IDs for all descendants; derive their transfer from the recorded old/new blocks.
+        // Recovery also supports journals created by earlier versions.
         let _ = mapping;
         self.persist()?;
         self.recover_move()
@@ -416,10 +410,7 @@ impl Engine {
                         .collect();
                     let ids: Vec<_> = tasks
                         .iter()
-                        .filter(|t| {
-                            candidates.contains(&t.id)
-                                && !has_selected_ancestor(t, &tasks, &candidates)
-                        })
+                        .filter(|t| candidates.contains(&t.id))
                         .map(|t| t.id.clone())
                         .collect();
                     if !ids.is_empty() {
@@ -521,15 +512,12 @@ impl Engine {
                             title: t.title.clone(),
                             done: t.done,
                             depth: 0,
-                            parent_id: t
-                                .parent_id
-                                .clone()
-                                .filter(|p| raw.iter().any(|t| &t.id == p)),
+                            parent_id: None,
                             reminder_at: self.data.reminders.get(&t.id).map(|r| r.due_at),
                         })
                         .collect();
                     tasks.sort_by_key(|t| rank(&t.id));
-                    order_tree(tasks)
+                    tasks
                 }
                 Err(e) => {
                     error = Some(e);
@@ -550,7 +538,7 @@ impl Engine {
                 })
             })
             .collect();
-        let (font_family, accent) = self.appearance();
+        let (font_family, accent, theme) = self.appearance();
         Snapshot {
             recovery_pending: self.data.journal.is_some(),
             settings: self.data.settings.clone(),
@@ -561,10 +549,11 @@ impl Engine {
             error,
             font_family,
             accent,
+            theme,
         }
     }
-    fn appearance(&self) -> (String, String) {
-        let default = ("Segoe UI".into(), "#147d64".into());
+    fn appearance(&self) -> (String, String, String) {
+        let default = ("Segoe UI".into(), "#8a5cf5".into(), "dark".into());
         let Ok(root) = self.root() else {
             return default;
         };
@@ -588,56 +577,19 @@ impl Engine {
                     && [4, 7, 9].contains(&s.len())
                     && s[1..].chars().all(|c| c.is_ascii_hexdigit())
             })
-            .unwrap_or("#147d64")
+            .unwrap_or("#8a5cf5")
             .to_string();
-        (font, accent)
+        let theme = match v.get("theme").and_then(|v| v.as_str()) {
+            Some("obsidian") => "dark",
+            Some("moonstone") => "light",
+            None => "dark",
+            _ => "system",
+        };
+        (font, accent, theme.into())
     }
-}
-fn has_selected_ancestor(
-    task: &markdown::Task,
-    tasks: &[markdown::Task],
-    selected: &HashSet<String>,
-) -> bool {
-    let mut parent = task.parent_id.as_ref();
-    let mut seen = HashSet::new();
-    while let Some(id) = parent {
-        if !seen.insert(id) {
-            break;
-        }
-        if selected.contains(id) {
-            return true;
-        }
-        parent = tasks
-            .iter()
-            .find(|t| &t.id == id)
-            .and_then(|t| t.parent_id.as_ref());
-    }
-    false
 }
 pub fn next_repeat(due: i64, now: i64, interval: i64) -> i64 {
     due + ((now - due).max(0) / interval + 1) * interval
-}
-fn order_tree(tasks: Vec<TaskView>) -> Vec<TaskView> {
-    fn walk(
-        parent: Option<&str>,
-        depth: usize,
-        tasks: &[TaskView],
-        out: &mut Vec<TaskView>,
-        seen: &mut HashSet<String>,
-    ) {
-        for t in tasks.iter().filter(|t| t.parent_id.as_deref() == parent) {
-            if !seen.insert(t.id.clone()) {
-                continue;
-            }
-            let mut item = t.clone();
-            item.depth = depth;
-            out.push(item);
-            walk(Some(&t.id), depth + 1, tasks, out, seen);
-        }
-    }
-    let mut out = Vec::new();
-    walk(None, 0, &tasks, &mut out, &mut HashSet::new());
-    out
 }
 #[cfg(test)]
 mod tests {
@@ -655,7 +607,7 @@ mod tests {
         (dir, e)
     }
     #[test]
-    fn postponing_cancels_parent_and_child_reminders_and_retains_history() {
+    fn postponing_one_item_preserves_indented_task_and_its_reminder() {
         let (_dir, mut e) = fixture();
         e.add("parent").unwrap();
         let path = e.note_path(e.today).unwrap();
@@ -672,11 +624,12 @@ mod tests {
             .unwrap();
         let tomorrow = e.today.checked_add_days(Days::new(1)).unwrap();
         e.postpone(&id, &tomorrow.to_string()).unwrap();
-        assert!(e.data.reminders.is_empty());
-        assert!(e.snapshot().tasks.is_empty());
+        assert_eq!(e.data.reminders.len(), 1);
+        assert_eq!(e.data.reminders["child"].due_at, due);
+        assert_eq!(e.snapshot().tasks.len(), 1);
         assert!(storage::read(&path).unwrap().contains("- [>] parent"));
         let copied = markdown::parse(&storage::read(&e.note_path(tomorrow).unwrap()).unwrap(), "");
-        assert_eq!(copied.len(), 2);
+        assert_eq!(copied.len(), 1);
         assert!(!copied[0].done);
         assert_ne!(copied[0].id, id);
     }
@@ -817,15 +770,18 @@ mod tests {
         assert!(e.data.reminders.is_empty());
     }
     #[test]
-    fn rollover_moves_deep_descendants_once_even_with_completed_middle_parent() {
+    fn rollover_moves_all_unfinished_checkboxes_independently() {
         let (_dir, mut e) = fixture();
         let path = e.note_path(e.today).unwrap();
         fs::write(&path,"- [ ] root <!-- tray-tasks:root -->\n  - [x] middle <!-- tray-tasks:middle -->\n    - [ ] leaf <!-- tray-tasks:leaf -->\n").unwrap();
         let tomorrow = e.today.checked_add_days(Days::new(1)).unwrap();
         e.tick_at(Local::now().timestamp(), tomorrow).unwrap();
-        assert_eq!(e.data.rollover.as_ref().unwrap().task_ids, vec!["root"]);
+        assert_eq!(
+            e.data.rollover.as_ref().unwrap().task_ids,
+            vec!["root", "leaf"]
+        );
         e.rollover(true).unwrap();
-        assert_eq!(e.snapshot().tasks.len(), 3);
+        assert_eq!(e.snapshot().tasks.len(), 2);
     }
     #[test]
     fn failed_configuration_preserves_preferences_and_reminders() {
@@ -842,6 +798,64 @@ mod tests {
         assert!(e.configure(settings).is_err());
         assert_eq!(e.data.settings.daily_folder, old);
         assert!(e.data.reminders.contains_key(&id));
+    }
+    #[test]
+    fn deleting_one_item_preserves_neighbor_reminders_and_flat_order() {
+        let (_dir, mut e) = fixture();
+        let path = e.note_path(e.today).unwrap();
+        fs::write(
+            &path,
+            "- [ ] a <!-- tray-tasks:a -->\n  - [ ] b <!-- tray-tasks:b -->\n",
+        )
+        .unwrap();
+        let due = Local::now().timestamp() + 60;
+        e.set_reminders(BTreeMap::from([("a".into(), due), ("b".into(), due)]))
+            .unwrap();
+        e.reorder(vec!["b".into(), "a".into()]).unwrap();
+        let tasks = e.snapshot().tasks;
+        assert_eq!(tasks[0].id, "b");
+        assert!(tasks.iter().all(|t| t.depth == 0 && t.parent_id.is_none()));
+        e.delete("a").unwrap();
+        assert_eq!(e.snapshot().tasks[0].id, "b");
+        assert_eq!(e.data.reminders["b"].due_at, due);
+        assert_eq!(
+            storage::read(&path).unwrap(),
+            "  - [ ] b <!-- tray-tasks:b -->\n"
+        );
+    }
+    #[test]
+    fn earlier_subtree_journal_can_finish_after_upgrade() {
+        let (_dir, mut e) = fixture();
+        let source = e.note_path(e.today).unwrap();
+        let old = "- [ ] a <!-- tray-tasks:a -->\n  - [ ] b <!-- tray-tasks:b -->\n";
+        fs::write(&source, old).unwrap();
+        let due = Local::now().timestamp() + 60;
+        e.set_reminders(BTreeMap::from([("a".into(), due), ("b".into(), due)]))
+            .unwrap();
+        let target = e
+            .ensure_note(e.today.checked_add_days(Days::new(1)).unwrap())
+            .unwrap();
+        e.data.journal = Some(MoveJournal {
+            source_path: e.note_key(&source).unwrap(),
+            expected_source: old.into(),
+            source_after: old.replace("[ ]", "[x]"),
+            target_path: e.note_key(&target).unwrap(),
+            target_block: old
+                .replace("tray-tasks:a", "tray-tasks:new-a")
+                .replace("tray-tasks:b", "tray-tasks:new-b"),
+            original_id: "a".into(),
+            new_id: "new-a".into(),
+            transfer_reminder: true,
+        });
+        e.persist().unwrap();
+        let resumed = Engine::new(e.data_dir.clone()).unwrap();
+        assert!(resumed.data.journal.is_none());
+        assert_eq!(resumed.data.reminders["new-a"].due_at, due);
+        assert_eq!(resumed.data.reminders["new-b"].due_at, due);
+        assert_eq!(
+            markdown::parse(&storage::read(&target).unwrap(), "").len(),
+            2
+        );
     }
     #[test]
     fn repeats_are_anchored_to_original_due_time() {

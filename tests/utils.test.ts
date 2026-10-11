@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  addDays,
-  escapeHtml,
-  moveTaskGroup,
-  reminderBounds,
-} from "../src/utils";
+import { addDays, escapeHtml, moveTask, reminderBounds } from "../src/utils";
 import type { Task } from "../src/types";
 describe("calendar and safe rendering", () => {
   it("adds calendar days across leap years and year boundaries", () => {
@@ -24,23 +19,26 @@ describe("calendar and safe rendering", () => {
     );
   });
 });
-describe("hierarchical display order", () => {
-  const task = (id: string, parentId: string | null): Task => ({
+describe("independent display order", () => {
+  const task = (id: string, parentId: string | null = null): Task => ({
     id,
     parentId,
     title: id,
-    depth: parentId ? 1 : 0,
+    depth: 0,
     done: false,
     reminderAt: null,
   });
-  const tasks = [task("a", null), task("child", "a"), task("b", null)];
-  it("moves the entire subtree without modifying markdown", () => {
-    expect(moveTaskGroup(tasks, "b", "a")).toEqual(["b", "a", "child"]);
+  const tasks = [task("a"), task("child", "a"), task("b")];
+  it("moves only the selected checkbox even if markdown was indented", () => {
+    expect(moveTask(tasks, "a", "b", true)).toEqual(["child", "b", "a"]);
+    expect(moveTask(tasks, "child", "b", true)).toEqual(["a", "b", "child"]);
   });
-  it("moves a parent below the next sibling together with its descendants", () => {
-    expect(moveTaskGroup(tasks, "a", "b")).toEqual(["b", "a", "child"]);
+  it("supports provisional placement before and after a target", () => {
+    expect(moveTask(tasks, "b", "a")).toEqual(["b", "a", "child"]);
+    expect(moveTask(tasks, "b", "a", true)).toEqual(["a", "b", "child"]);
   });
-  it("does not detach a child from its parent", () => {
-    expect(moveTaskGroup(tasks, "child", "b")).toEqual(["a", "child", "b"]);
+  it("ignores stale or identical identifiers without losing tasks", () => {
+    expect(moveTask(tasks, "missing", "a")).toEqual(["a", "child", "b"]);
+    expect(moveTask(tasks, "a", "a")).toEqual(["a", "child", "b"]);
   });
 });

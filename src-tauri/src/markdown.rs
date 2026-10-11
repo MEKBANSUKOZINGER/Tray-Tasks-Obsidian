@@ -16,8 +16,6 @@ pub struct Task {
     pub title: String,
     pub done: bool,
     pub deferred: bool,
-    pub indent: usize,
-    pub parent_id: Option<String>,
     pub line: Range<usize>,
     pub block: Range<usize>,
     pub marker: usize,
@@ -139,19 +137,11 @@ pub fn parse(text: &str, heading: &str) -> Vec<Task> {
             }
             end = next_offset + next.len();
         }
-        let parent_id = tasks
-            .iter()
-            .rev()
-            .find(|t: &&Task| t.indent < indent && t.block.end > offset)
-            .map(|t| t.id.clone())
-            .filter(|s| !s.is_empty());
         tasks.push(Task {
             id,
             title,
             done: matches!(status, 'x' | 'X'),
             deferred: status == '>',
-            indent,
-            parent_id,
             line: offset..offset + line.len(),
             block: offset..end,
             marker: offset + c.get(2).unwrap().start(),
@@ -227,7 +217,7 @@ pub fn rename(text: &str, id: &str, name: &str) -> Result<String, String> {
 pub fn remove(text: &str, id: &str) -> Result<String, String> {
     let task = find(text, id)?;
     let mut out = text.to_string();
-    out.replace_range(task.block, "");
+    out.replace_range(task.line, "");
     Ok(out)
 }
 pub fn append(text: &str, block: &str, heading: &str) -> String {
@@ -273,45 +263,16 @@ pub fn moved(
     rollover: bool,
 ) -> Result<MovedBlock, String> {
     let task = find(text, id)?;
-    let original_block = &text[task.block.clone()];
-    let descendants = parse(original_block, "");
-    let mut mapping = Vec::new();
-    let mut copied = original_block.to_string();
-    for child in descendants.iter().rev() {
-        let new_id = Uuid::new_v4().to_string();
-        copied = copied.replace(
-            &format!("tray-tasks:{}", child.id),
-            &format!("tray-tasks:{}", new_id),
-        );
-        mapping.push((child.id.clone(), new_id));
-    }
-    // If moving a nested item alone, promote its block to a top-level item.
-    let prefix = &text[task.line.start
-        ..task.line.start + text[task.line.clone()].len()
-            - text[task.line.clone()].trim_start().len()];
-    if !prefix.is_empty() {
-        copied = copied
-            .split_inclusive('\n')
-            .map(|l| l.strip_prefix(prefix).unwrap_or(l))
-            .collect();
-    }
-    let new_id = mapping
-        .iter()
-        .find(|(old, _)| old == id)
-        .map(|(_, new)| new.clone())
-        .ok_or("Missing task identifier")?;
-    let mut retained = original_block.to_string();
-    if rollover {
-        for child in descendants.iter().rev() {
-            retained.replace_range(child.marker..child.marker + 1, "x");
-        }
-    } else {
-        for child in descendants.iter().rev() {
-            if !child.done {
-                retained.replace_range(child.marker..child.marker + 1, ">");
-            }
-        }
-    }
+    // Each checkbox is independent, including indented Markdown checkboxes.
+    let original_line = &text[task.line.clone()];
+    let new_id = Uuid::new_v4().to_string();
+    let copied = original_line.trim_start().replace(
+        &format!("tray-tasks:{}", task.id),
+        &format!("tray-tasks:{}", new_id),
+    );
+    let mut retained = original_line.to_string();
+    let marker = task.marker - task.line.start;
+    retained.replace_range(marker..marker + 1, if rollover { "x" } else { ">" });
     let first_end = retained.find('\n').unwrap_or(retained.len());
     let insert = if retained[..first_end].ends_with('\r') {
         first_end - 1
@@ -320,7 +281,8 @@ pub fn moved(
     };
     retained.insert_str(insert, &format!(" → [[{}]]", destination));
     let mut source = text.to_string();
-    source.replace_range(task.block, &retained);
+    source.replace_range(task.line, &retained);
+    let mapping = vec![(id.to_string(), new_id.clone())];
     Ok((source, copied, new_id, mapping))
 }
 
@@ -343,16 +305,17 @@ mod tests {
         assert_eq!(ensure_ids(&output, ""), output);
     }
     #[test]
-    fn nested_move_preserves_prose_and_source_crlf() {
+    fn single_move_preserves_indented_neighbors_prose_and_crlf() {
         let text = "- [ ] parent <!-- tray-tasks:one -->\r\n  details\r\n  - [ ] child <!-- tray-tasks:two -->\r\n\r\n## Other\r\nuntouched\r\n";
         let (source, copied, new_id, mapping) = moved(text, "one", "2026-10-12", false).unwrap();
         assert!(source.contains("- [>] parent"));
-        assert!(source.contains("  - [>] child"));
+        assert!(source.contains("  - [ ] child"));
         assert!(source.ends_with("## Other\r\nuntouched\r\n"));
-        assert!(copied.contains("details"));
+        assert!(source.contains("  details\r\n"));
+        assert!(!copied.contains("details"));
         assert_ne!(new_id, "one");
-        assert_eq!(mapping.len(), 2);
-        assert!(copied.contains("- [ ] child"));
+        assert_eq!(mapping.len(), 1);
+        assert!(!copied.contains("child"));
     }
     #[test]
     fn completion_and_rename_do_not_touch_unrelated_content() {
@@ -370,9 +333,12 @@ mod tests {
         assert_eq!(output, "# Journal\nhello\n\n## Tasks\n- [ ] a\n");
     }
     #[test]
-    fn remove_parent_removes_children_but_not_following_heading() {
+    fn deleting_one_checkbox_preserves_indented_neighbors() {
         let text =
             "- [ ] a <!-- tray-tasks:one -->\n  - [ ] b <!-- tray-tasks:two -->\n# Keep\nbody";
-        assert_eq!(remove(text, "one").unwrap(), "# Keep\nbody");
+        assert_eq!(
+            remove(text, "one").unwrap(),
+            "  - [ ] b <!-- tray-tasks:two -->\n# Keep\nbody"
+        );
     }
 }

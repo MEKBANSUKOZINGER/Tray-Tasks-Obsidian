@@ -37,6 +37,7 @@ export interface Snapshot {
   recoveryPending: boolean;
   fontFamily: string;
   accent: string;
+  theme: "dark" | "light" | "system";
 }
 export type Action =
   | { kind: "configure"; settings: Settings }

@@ -4,19 +4,21 @@ Your Obsidian daily tasks, one click away.
 
 A Windows tray app that reads and edits the checkboxes in your daily notes. Obsidian can stay closed.
 
-**0.1.0 — development preview.** [한국어 안내](README.ko.md)
+**0.2.0 — development preview.** [한국어 안내](README.ko.md)
 
-![Tray Tasks running on Windows with a sample vault](docs/assets/tray-tasks.png)
+![Tray Tasks running on Windows with a sample vault](docs/assets/tray-tasks.jpg)
 
 ## What it does
 
-- Add, rename, complete, reopen and delete tasks, including nested items.
-- Drag tasks to change their display order without rearranging your Markdown.
+- Add, rename, complete, reopen and delete independent tasks. Indented checkboxes appear as regular tasks.
+- Drag tasks with live placement preview; display order persists without rearranging Markdown.
 - Postpone to tomorrow, the same weekday next week, or a date you choose.
 - Set reminders through tomorrow at 23:59, with grouped alerts and configurable repeats.
 - Carry unfinished tasks across midnight while keeping their reminder times.
 - Start quietly when signing in to Windows.
 - Korean and English UI, custom tray icons, fonts, accent color and compact window settings.
+
+The compact task list uses Obsidian default light/dark colors, with dialogs above the list and a centered setup window. The Add button scrolls with the list and opens a blank input row.
 
 Manual postponement cancels reminders. Midnight rollover preserves the exact scheduled time.
 
@@ -27,7 +29,7 @@ Manual postponement cancels reminders. Midnight rollover preserves the exact sch
 3. Choose your vault and the matching daily-note folder in Tray Tasks. Leave the folder blank for the vault root.
 4. Confirm the Daily Notes setup and save. Use the icon in the notification area to open your task list.
 
-The folder picker reads Obsidian's Daily Notes folder when its configuration exists. You can also enter it manually. Windows may initially put the tray icon in its overflow menu.
+The folder picker reads Obsidian's Daily Notes folder when its configuration exists. You can also enter it manually. Windows may initially put the tray icon in its overflow menu. Open Taskbar icon settings from Tray Tasks settings, or drag the icon out of the overflow menu. Windows controls this preference.
 
 Existing notes are kept. Missing notes are created as empty UTF-8 files. Note templates are not executed.
 

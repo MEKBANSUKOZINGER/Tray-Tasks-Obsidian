@@ -4,7 +4,7 @@ Your Obsidian daily tasks, one click away.
 
 A Windows tray app that reads and edits the checkboxes in your daily notes. Obsidian can stay closed.
 
-**0.2.0 — development preview.** [한국어 안내](README.ko.md)
+**0.3.0 — development preview.** [한국어 안내](README.ko.md)
 
 ![Tray Tasks running on Windows with a sample vault](docs/assets/tray-tasks.jpg)
 
@@ -13,12 +13,12 @@ A Windows tray app that reads and edits the checkboxes in your daily notes. Obsi
 - Add, rename, complete, reopen and delete independent tasks. Indented checkboxes appear as regular tasks.
 - Drag tasks with live placement preview; display order persists without rearranging Markdown.
 - Postpone to tomorrow, the same weekday next week, or a date you choose.
-- Set reminders through tomorrow at 23:59, with grouped alerts and configurable repeats.
+- Set reminders using Today/Tomorrow and scrolling hour/minute wheels, with grouped alerts and configurable repeats.
 - Carry unfinished tasks across midnight while keeping their reminder times.
 - Start quietly when signing in to Windows.
 - Korean and English UI, custom tray icons, fonts, accent color and compact window settings.
 
-The compact task list uses Obsidian default light/dark colors, with dialogs above the list and a centered setup window. The Add button scrolls with the list and opens a blank input row.
+The compact task list uses Obsidian default light/dark colors, with dialogs above the list and a centered setup window. The Add button scrolls with the list and opens a blank input row. Enter or clicking elsewhere saves a nonempty name; blank rows are discarded. Rename edits also commit on blur. Five tasks plus Add fit without a scrollbar. Invalid postponement dates remain in the compact popup with an inline error.
 
 Manual postponement cancels reminders. Midnight rollover preserves the exact scheduled time.
 

@@ -1,21 +1,32 @@
-# Verification — 0.2.0
+# Verification — 0.3.0
 
 Date: 2026-10-11. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
 
 ## Automated
 
 - Rust: 21 tests passing.
-- TypeScript: 6 tests passing.
+- TypeScript: 10 tests passing.
 - TypeScript/Vite production build passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
-- npm dependency audit: zero reported vulnerabilities at verification time.
+- Dependency audit was clean at the previous verification; it was not rerun for this revision.
 
 Tests cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
 
 ## Manual observations
 
 Using a separate sample vault and isolated debug app data:
+
+Second revision:
+- Five tasks plus Add fit without a scrollbar; larger lists still scroll.
+- Native hour/minute wheel scrolling selected a new minute and saved the exact timestamp after Apply; before Apply, persisted reminders remained empty.
+- Closing the decorated settings window and reopening through the shared tray/single-instance show path returned to the compact task list.
+- Native dragging persisted the chosen order and left the Markdown hash unchanged.
+- Native outside-click creation appended a nonempty checkbox.
+- Browser preview verified empty-row cancellation, outside-click add/rename, direct reminder selection, Today/Tomorrow selection, keyboard wheel navigation and inline rejection of past postponement dates.
+- Compact, shadow-free native action windows were visually inspected.
+
+Earlier regression observations:
 
 - Native first-run setup appeared as a centered, decorated 640px window.
 - Native pointer dragging changed persisted display order; the Markdown file hash stayed unchanged.

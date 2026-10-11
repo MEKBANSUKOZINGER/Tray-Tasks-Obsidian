@@ -330,8 +330,8 @@ fn open_popup(
     }
     let height = match context["modal"]["kind"].as_str() {
         Some("delete") => 180.0,
-        Some("postpone") => 290.0,
-        Some("time") => 235.0,
+        Some("postpone") => 160.0,
+        Some("time") => 220.0,
         Some("abandon") => 240.0,
         _ => return Err("Invalid popup kind".into()),
     };
@@ -647,6 +647,9 @@ fn main() {
                 api.prevent_close();
                 hide_popup(window.app_handle());
                 let _ = window.hide();
+                if window.label() == "main" {
+                    let _ = window.emit("reset-view", ());
+                }
             }
         })
         .run(tauri::generate_context!())

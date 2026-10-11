@@ -216,28 +216,8 @@ footer button {
   width: 11px;
   height: 11px;
 }
-.selecting {
-  animation: wiggle 1.5s ease-in-out infinite;
-}
-.selecting:nth-child(even) {
-  animation-delay: -0.6s;
-}
 .selected {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-}
-@keyframes wiggle {
-  0%,
-  100% {
-    transform: rotate(-0.25deg) translateX(-0.3px);
-  }
-  50% {
-    transform: rotate(0.25deg) translateX(0.3px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .selecting {
-    animation: none;
-  }
 }
 .drag-placeholder {
   opacity: 0.25;
@@ -248,7 +228,7 @@ footer button {
   z-index: 100;
   pointer-events: none;
   background: var(--secondary);
-  box-shadow: 0 4px 14px #0004;
+
   border: 1px solid var(--accent);
   opacity: 0.95;
 }
@@ -545,7 +525,6 @@ footer button {
   width: calc(100% + 2px);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 20px #0004;
 }
 .preview-mode .settings-app {
   width: 640px;
@@ -571,4 +550,140 @@ footer button {
 .task-time svg {
   width: 13px;
   height: 13px;
+}
+
+/* Compact, shadow-free action windows and unobtrusive inline editing. */
+.rename-input,
+.new-task input[name="title"] {
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+.rename-input:focus-visible,
+.new-task input[name="title"]:focus-visible {
+  outline: none;
+}
+.task {
+  flex-shrink: 0;
+}
+.task-list {
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+.add-button,
+.new-task {
+  flex-shrink: 0;
+  min-height: max(36px, calc(var(--task-font) + 22px));
+}
+.modal {
+  padding: 12px;
+}
+.modal h2 {
+  margin-bottom: 6px;
+}
+.modal-buttons {
+  margin-top: 8px;
+}
+.modal .modal-task {
+  margin: 4px 0 8px;
+}
+.modal-error {
+  color: #fb464c !important;
+  margin: 8px 0 0 !important;
+  font-size: 11px;
+}
+.postpone-shortcuts {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.postpone-shortcuts button {
+  flex: 1;
+  background: var(--secondary);
+  font-size: 11px;
+}
+.date-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.date-entry input {
+  min-width: 0;
+  width: 142px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px;
+}
+.date-entry button {
+  font-size: 11px;
+  flex: 1;
+}
+.day-options {
+  display: flex;
+  gap: 6px;
+}
+.day-options button {
+  flex: 1;
+  padding: 4px;
+  background: var(--secondary);
+}
+.day-options .primary {
+  background: var(--accent);
+}
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.time-wheels {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 6px;
+}
+.wheel-column {
+  width: 86px;
+  text-align: center;
+}
+.wheel-column > span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+.time-wheel {
+  height: 90px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  padding: 30px 0;
+  position: relative;
+  border-radius: 5px;
+  background: var(--secondary);
+}
+.time-wheel::-webkit-scrollbar {
+  display: none;
+}
+.time-wheel button {
+  height: 30px;
+  width: 100%;
+  display: block;
+  border-radius: 0;
+  padding: 0;
+  scroll-snap-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.time-wheel [aria-selected="true"] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 15%, var(--secondary));
+  font-weight: 600;
+}
+.time-modal h2 {
+  font-size: 12px;
+}
+.time-modal .modal-buttons button {
+  font-size: 11px;
 }

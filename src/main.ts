@@ -1,13 +1,16 @@
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Action, Settings, Snapshot, Task } from "./types";
 import {
   addDays,
   escapeHtml as esc,
-  localInput,
+  dateKey,
+  reminderOptions,
+  validReminder,
+  futureDate,
   reminderBounds,
   moveTask,
 } from "./utils";
@@ -49,7 +52,15 @@ let drag: {
 } | null = null;
 let suppressClick = false;
 let pendingSnapshot: Snapshot | null = null;
+let reordering = false;
 let popupHeight = 0;
+let modalError = "",
+  rendering = false;
+let pointerPressed = false,
+  pendingInline = false;
+let inlineCommit: Promise<boolean> | null = null;
+let timeDraft: { day: string; hour: number; minute: number } | null = null;
+const wheelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 interface PopupContext {
   token: number;
   modal: Modal;
@@ -129,7 +140,7 @@ const labels = {
       "복구 기록만 해제합니다. 이미 복사된 대상 항목은 남으므로 원본과 대상 노트를 확인해주세요.",
     error: "작업을 완료하지 못했어요",
     data: "저장·백업 폴더 열기",
-    version: "개발 버전 0.2.0",
+    version: "개발 버전 0.3.0",
     editHint: "우클릭하거나 F2를 눌러 이름 수정",
     count: "개",
   },
@@ -204,7 +215,7 @@ const labels = {
       "Only the recovery record is cleared. Already copied tasks remain. Check both notes.",
     error: "Couldn't complete the action",
     data: "Open storage and backups",
-    version: "Development build 0.2.0",
+    version: "Development build 0.3.0",
     editHint: "Right-click or press F2 to rename",
     count: "items",
   },
@@ -251,7 +262,7 @@ function notify(message: string) {
     render();
   }, 5000);
 }
-async function dispatch(action: Action) {
+async function dispatch(action: Action, onError?: (message: string) => void) {
   if (busy) return false;
   busy = true;
   render();
@@ -261,7 +272,8 @@ async function dispatch(action: Action) {
       : await invoke<Snapshot>("action", { action });
     return true;
   } catch (e) {
-    notify(String(e));
+    if (onError) onError(String(e));
+    else notify(String(e));
     return false;
   } finally {
     busy = false;
@@ -287,6 +299,8 @@ function setView(next: typeof view) {
   if (list) list.scrollTop = 0;
   view = next;
   modal = null;
+  modalError = "";
+  timeDraft = null;
   adding = false;
   addText = "";
   editing = null;
@@ -304,9 +318,9 @@ function taskRow(task: Task) {
   const effective = Object.hasOwn(reminderDraft, task.id)
     ? pending
     : task.reminderAt;
-  return `<div class="task ${task.done ? "done" : ""} ${view === "reminders" ? "selecting" : ""} ${pending ? "selected" : ""}" data-id="${esc(task.id)}">
+  return `<div class="task ${task.done ? "done" : ""}  ${pending ? "selected" : ""}" data-id="${esc(task.id)}">
 <button class="grip icon-button"  data-drag="${esc(task.id)}" aria-label="Reorder ${esc(task.title)}">${svg("grip")}</button>
-${view === "reminders" ? `<button class="selection-dot ${pending ? "active" : ""}" data-task-action="time" aria-label="${t("chooseTime")}">${pending ? svg("check") : ""}</button>` : `<input type="checkbox" data-check aria-label="${esc(task.title)}" ${task.done ? "checked" : ""}/>`}
+${view === "reminders" ? `<button class="selection-dot ${effective ? "active" : ""}" data-task-action="time" aria-label="${t("chooseTime")}">${svg("clock")}</button>` : `<input type="checkbox" data-check aria-label="${esc(task.title)}" ${task.done ? "checked" : ""}/>`}
 <div class="task-content">${editing === task.id ? `<input id="rename-input" class="rename-input" value="${esc(task.title)}" aria-label="${t("rename")}"/>` : `<button class="task-name" data-task-action="${view === "reminders" ? "time" : "edit"}" title="${t("editHint")}">${esc(task.title)}</button>`}
 ${effective ? `<button class="task-time" data-task-action="time" title="${esc(fmtTime(effective!))}" aria-label="${esc(fmtTime(effective!))}">${svg("clock")}</button>` : ""}</div>
 ${view !== "reminders" ? `<div class="task-actions"><button class="icon-button danger" data-task-action="delete" title="${t("delete")}" aria-label="${t("delete")} ${esc(task.title)}">${svg("trash")}</button>${!task.done ? `<button class="icon-button" data-task-action="postpone" title="${t("postpone")}" aria-label="${t("postpone")} ${esc(task.title)}">${svg("next")}</button>` : ""}</div>` : ""}</div>`;
@@ -369,19 +383,82 @@ function modalView() {
     const tomorrow = addDays(snapshot.date, 1),
       next = addDays(snapshot.date, 7);
     content = `<h2>${t("postpone")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p>
-<button class="date-option" data-date="${tomorrow}"><span>${t("tomorrow")}</span><small>${esc(fmtDate(tomorrow))}</small></button><button class="date-option" data-date="${next}"><span>${t("nextWeek")}</span><small>${esc(fmtDate(next))}</small></button>
-<label class="field"><span>${t("otherDate")}</span><input id="postpone-date" type="date" min="${tomorrow}" value="${modal.date ?? ""}"/></label>
-${modal.date ? `<button class="date-option chosen" data-date="${modal.date}"><span>${t("move")}</span><small>${esc(fmtDate(modal.date))}</small></button>` : ""}<div class="modal-buttons">${button("close-modal", t("cancel"))}</div>`;
+<div class="postpone-shortcuts"><button data-date="${tomorrow}">${t("tomorrow")}</button><button data-date="${next}">${t("nextWeek")}</button></div>
+<div class="date-entry"><input aria-label="${t("otherDate")}" id="postpone-date" type="date" min="${tomorrow}" value="${modal.date ?? ""}"/>${button("postpone-custom", t("move"))}</div>
+<div class="modal-buttons">${button("close-modal", t("cancel"))}</div>`;
   }
   if (modal.kind === "time") {
-    const bounds = reminderBounds(),
-      due =
-        (reminderDraft[modal.id!] || task?.reminderAt) ??
-        Math.ceil((Date.now() + 600000) / 60000) * 60;
-    content = `<h2>${t("chooseTime")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><label class="field"><input id="reminder-time" type="datetime-local" min="${bounds.min}" max="${bounds.max}" value="${localInput(new Date(due * 1000))}" required/></label><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("choose-time", t("save"), undefined, "primary")}</div>${task?.reminderAt ? button("clear-reminder", t("clearReminder"), undefined, "text-danger") : ""}`;
+    content = `<h2>${t("chooseTime")}</h2>${timePicker(task)}<div class="modal-buttons">${button("clear-reminder", t("clearReminder"), undefined, "text-danger")}${button("choose-time", t("save"), undefined, "primary")}</div>`;
   }
-  return `<section class="modal" role="dialog" aria-modal="false">${content}</section>`;
+  return `<section class="modal ${modal.kind}-modal" role="dialog" aria-label="${t(modal.kind === "time" ? "chooseTime" : modal.kind === "postpone" ? "postpone" : modal.kind === "delete" ? "delete" : "abandon")}">${content}${modalError ? `<p class="modal-error" role="alert">${esc(modalError)}</p>` : ""}</section>`;
 }
+function timePicker(task?: Task) {
+  const bounds = reminderBounds(),
+    now = new Date();
+  if (!timeDraft) {
+    const due = new Date(
+      Math.min(
+        new Date(bounds.max).getTime(),
+        Math.max(
+          new Date(bounds.min).getTime(),
+          ((reminderDraft[modal!.id!] || task?.reminderAt) ??
+            Math.ceil((Date.now() + 600000) / 60000) * 60) * 1000,
+        ),
+      ),
+    );
+    timeDraft = {
+      day: dateKey(due),
+      hour: due.getHours(),
+      minute: due.getMinutes(),
+    };
+  }
+  const days = [dateKey(now), addDays(dateKey(now), 1)];
+  const opts = reminderOptions(timeDraft.day, timeDraft.hour, now);
+  const wheel = (key: "hour" | "minute", values: number[], label: string) =>
+    `<div class="wheel-column"><span>${label}</span><div class="time-wheel" id="wheel-${key}" data-wheel="${key}" role="listbox" tabindex="0" aria-label="${label}">${values.map((v) => `<button role="option" aria-selected="${timeDraft![key] === v}" data-wheel-value="${v}" data-wheel-key="${key}" tabindex="-1">${String(v).padStart(2, "0")}</button>`).join("")}</div></div>`;
+  return `<div class="day-options">${days.map((d, i) => `<button data-day="${d}" class="${timeDraft!.day === d ? "primary" : ""}" ${!reminderOptions(d, 0, now).hours.length ? "disabled" : ""}>${i ? t("tomorrow") : snapshot.settings.language === "ko" ? "오늘" : "Today"}</button>`).join("")}</div><div class="time-wheels">${wheel("hour", opts.hours, snapshot.settings.language === "ko" ? "시" : "Hour")}${wheel("minute", opts.minutes, snapshot.settings.language === "ko" ? "분" : "Minute")}</div>`;
+}
+function wheelValue(key: "hour" | "minute", value: number) {
+  if (!timeDraft) return;
+  timeDraft[key] = value;
+  const options = reminderOptions(timeDraft.day, timeDraft.hour);
+  if (!options.hours.includes(timeDraft.hour))
+    timeDraft.hour = options.hours[0] ?? 0;
+  const minutes = reminderOptions(timeDraft.day, timeDraft.hour).minutes;
+  if (!minutes.includes(timeDraft.minute)) timeDraft.minute = minutes[0] ?? 0;
+  modalError = "";
+  render();
+}
+function selectedDue() {
+  if (!timeDraft) return NaN;
+  app.querySelectorAll<HTMLElement>(".time-wheel").forEach((wheel) => {
+    const key = wheel.dataset.wheel as "hour" | "minute";
+    const options = Array.from(
+      wheel.querySelectorAll<HTMLElement>("[data-wheel-value]"),
+    );
+    const at = Math.max(
+      0,
+      Math.min(options.length - 1, Math.round(wheel.scrollTop / 30)),
+    );
+    if (options[at]) timeDraft![key] = Number(options[at].dataset.wheelValue);
+  });
+  return (
+    new Date(
+      timeDraft.day +
+        "T" +
+        String(timeDraft.hour).padStart(2, "0") +
+        ":" +
+        String(timeDraft.minute).padStart(2, "0"),
+    ).getTime() / 1000
+  );
+}
+function openModal(next: Modal) {
+  modal = next;
+  modalError = "";
+  timeDraft = null;
+  render();
+}
+
 function reminderView() {
   const pending = snapshot.rollover;
   return `<div class="reminder-shell">
@@ -418,6 +495,7 @@ function captureDraft(form: HTMLFormElement) {
 }
 function render() {
   if (!snapshot || drag?.started) return;
+  rendering = true;
   const scrollTop = app.querySelector(".task-list")?.scrollTop ?? 0;
   const active = document.activeElement as HTMLInputElement | null,
     focusId = active?.id,
@@ -469,6 +547,11 @@ function render() {
   const list = app.querySelector(".task-list");
   if (list) list.scrollTop = scrollTop;
   app.toggleAttribute("data-busy", busy);
+  app.querySelectorAll<HTMLElement>(".time-wheel").forEach((wheel) => {
+    const selected = wheel.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (selected)
+      wheel.scrollTop = Array.from(wheel.children).indexOf(selected) * 30;
+  });
   if (isPopup && modal) {
     const height = app.querySelector<HTMLElement>(".modal")!.scrollHeight + 2;
     if (height !== popupHeight) {
@@ -494,12 +577,7 @@ function render() {
   rename?.addEventListener("keydown", async (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (
-        await dispatch({ kind: "rename", id: editing!, title: rename.value })
-      ) {
-        editing = null;
-        render();
-      }
+      await finishInline();
     }
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -527,36 +605,37 @@ function render() {
       void invoke("close_popup");
     }
 
-    const count = snapshot.tasks.filter(
-      (task) => task.done === (view === "completed"),
-    ).length;
-    const rows = Math.max(
-      1,
-      Math.min(
-        snapshot.settings.visibleRows,
-        count + (view === "tasks" ? 1 : 0),
-      ),
-    );
-    const rowHeight = Math.max(36, snapshot.settings.fontSize + 22);
+    const list = app.querySelector<HTMLElement>(".task-list");
+    const children = Array.from(list?.children ?? []) as HTMLElement[];
+    const rows =
+      children.length <= (view === "tasks" ? 6 : 5)
+        ? Math.max(snapshot.settings.visibleRows, children.length)
+        : snapshot.settings.visibleRows;
+    const contents = children
+      .slice(0, rows)
+      .reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+    const footer = app.querySelector<HTMLElement>("footer");
     const height =
       view === "settings"
         ? 570
-        : rows * rowHeight + 50 + (snapshot.error ? 100 : 0);
+        : Math.ceil(
+            contents +
+              (footer?.getBoundingClientRect().height ?? 36) +
+              18 +
+              (app.querySelector<HTMLElement>(".error")?.getBoundingClientRect()
+                .height ?? 0),
+          );
     void invoke("resize_main", { height, settings: view === "settings" }).catch(
       (e) => console.error(e),
     );
   }
+  rendering = false;
 }
 app.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target as HTMLFormElement;
   if (form.id === "add-form") {
-    const input = form.elements.namedItem("title") as HTMLInputElement;
-    if (await dispatch({ kind: "add", title: input.value })) {
-      adding = false;
-      addText = "";
-      render();
-    }
+    await finishInline();
   }
   if (form.id === "settings-form") {
     captureDraft(form);
@@ -574,6 +653,7 @@ app.addEventListener("input", (e) => {
   if (form && draft) captureDraft(form);
 });
 app.addEventListener("change", async (e) => {
+  if (inlineCommit) await inlineCommit;
   const input = e.target as HTMLInputElement;
   const settingsForm = input.closest<HTMLFormElement>("#settings-form");
   if (settingsForm && draft) captureDraft(settingsForm);
@@ -585,7 +665,7 @@ app.addEventListener("change", async (e) => {
     });
   if (input.id === "postpone-date") {
     modal!.date = input.value;
-    render();
+    modalError = "";
   }
   if (input.name === "language") {
     captureDraft(input.closest("form")!);
@@ -713,20 +793,51 @@ app.addEventListener("pointerup", async (e) => {
     e.clientY >= list.top &&
     e.clientY <= list.bottom;
   suppressClick = current.started;
+  if (current.started && inside) {
+    reordering = true;
+    const latest = pendingSnapshot ?? snapshot;
+    const tasks = new Map(latest.tasks.map((t) => [t.id, t]));
+    // Keep the provisional order through the save; rollback only if persistence fails.
+    if (
+      current.ids.length === tasks.size &&
+      current.ids.every((id) => tasks.has(id))
+    ) {
+      latest.tasks = current.ids.map((id) => tasks.get(id)!);
+      snapshot = latest;
+      pendingSnapshot = null;
+    }
+  }
   cancelDrag();
   setTimeout(() => {
     suppressClick = false;
   }, 0);
-  if (current.started && inside)
-    await dispatch({ kind: "reorder", ids: current.ids });
+  if (current.started && inside) {
+    const ok = await dispatch({ kind: "reorder", ids: current.ids });
+    reordering = false;
+    pendingSnapshot = null;
+    if (!ok) await refresh();
+    else render();
+  }
 });
 app.addEventListener("pointercancel", cancelDrag);
 app.addEventListener("lostpointercapture", () => {
   if (drag) cancelDrag();
 });
 app.addEventListener("click", async (e) => {
+  const clicked = e.target as HTMLElement;
   const target = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
-  if (!target || busy || suppressClick) return;
+  const row = clicked.closest<HTMLElement>(".task[data-id]");
+  if (pendingInline) {
+    pendingInline = false;
+    await finishInline();
+  }
+  if (inlineCommit) await inlineCommit;
+  if (busy || suppressClick) return;
+  if (!target) {
+    if (view === "reminders" && row)
+      openModal({ kind: "time", id: row.dataset.id });
+    return;
+  }
   if (isPopup) {
     await popupChoice(target);
     return;
@@ -736,27 +847,32 @@ app.addEventListener("click", async (e) => {
   if (taskAction && id) {
     if (taskAction === "edit") return;
     if (taskAction === "delete" || taskAction === "postpone") {
-      modal = { kind: taskAction, id };
-      render();
+      openModal({ kind: taskAction, id });
       return;
     }
     if (taskAction === "time") {
-      modal = { kind: "time", id };
-      render();
+      openModal({ kind: "time", id });
       return;
     }
   }
+  if (target.dataset.day && timeDraft) {
+    timeDraft.day = target.dataset.day;
+    wheelValue("hour", timeDraft.hour);
+    return;
+  }
+  if (target.dataset.wheelKey) {
+    wheelValue(
+      target.dataset.wheelKey as "hour" | "minute",
+      Number(target.dataset.wheelValue),
+    );
+    return;
+  }
   if (target.dataset.date && modal?.id) {
-    if (
-      await dispatch({
-        kind: "postpone",
-        id: modal.id,
-        date: target.dataset.date,
-      })
-    ) {
-      modal = null;
-      render();
-    }
+    await finishModalChoice({
+      token: popupToken,
+      kind: "postpone",
+      date: target.dataset.date,
+    });
     return;
   }
   switch (target.dataset.action) {
@@ -819,40 +935,23 @@ app.addEventListener("click", async (e) => {
       if (await dispatch({ kind: "reminders", selections: reminderDraft }))
         setView("tasks");
       break;
-    case "choose-time": {
-      const input = document.getElementById(
-        "reminder-time",
-      ) as HTMLInputElement;
-      if (!input.reportValidity()) break;
-      const due = Math.floor(new Date(input.value).getTime() / 1000);
-      if (!Number.isFinite(due) || due < Date.now() / 1000) {
-        notify(t("timeHint"));
-        break;
-      }
-      const taskId = modal!.id!;
-      if (view === "reminders") {
-        reminderDraft[taskId] = due;
-        modal = null;
-        render();
-      } else if (
-        await dispatch({ kind: "reminders", selections: { [taskId]: due } })
-      ) {
-        modal = null;
-        render();
-      }
+    case "postpone-custom":
+      await finishModalChoice({
+        token: popupToken,
+        kind: "postpone",
+        date: (document.getElementById("postpone-date") as HTMLInputElement)
+          .value,
+      });
       break;
-    }
+    case "choose-time":
+      await finishModalChoice({
+        token: popupToken,
+        kind: "choose-time",
+        due: selectedDue(),
+      });
+      break;
     case "clear-reminder":
-      if (modal?.id) {
-        if (view === "reminders") {
-          reminderDraft[modal.id] = 0;
-          modal = null;
-          render();
-        } else if (await dispatch({ kind: "clearReminder", id: modal.id })) {
-          modal = null;
-          render();
-        }
-      }
+      await finishModalChoice({ token: popupToken, kind: "clear-reminder" });
       break;
     case "acknowledge":
       await dispatch({
@@ -870,8 +969,7 @@ app.addEventListener("click", async (e) => {
       await dispatch({ kind: "recover" });
       break;
     case "abandon":
-      modal = { kind: "abandon" };
-      render();
+      openModal({ kind: "abandon" });
       break;
     case "confirm-abandon":
       if (await dispatch({ kind: "abandonRecovery" })) {
@@ -998,7 +1096,7 @@ async function start() {
         receivePopupChoice(event.payload),
       );
     await listen<Snapshot>("snapshot", (event) => {
-      if (drag) {
+      if (drag || reordering) {
         pendingSnapshot = event.payload;
         return;
       }
@@ -1006,9 +1104,24 @@ async function start() {
       render();
     });
     await listen("show-settings", () => setView("settings"));
+    await listen("reset-view", () => {
+      if (snapshot.settings.vaultPath) setView("tasks");
+    });
+    if (isPopup)
+      await listen<{ token: number; error: string }>(
+        "popup-result",
+        (event) => {
+          if (event.payload.token === popupToken) {
+            busy = false;
+            modalError = event.payload.error;
+            render();
+          }
+        },
+      );
     await listen<string>("app-error", (event) => notify(event.payload));
     if (!isReminder && !isPopup)
       await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+        if (!focused && !modal && !drag) void finishInline();
         if (
           !focused &&
           view !== "settings" &&
@@ -1028,69 +1141,241 @@ function applyPopup(context: PopupContext) {
   popupToken = context.token;
   view = context.view;
   reminderDraft = context.reminderDraft;
+  modalError = "";
+  timeDraft = null;
+  busy = false;
   render();
 }
+type PopupChoice = { token: number; kind: string; date?: string; due?: number };
 async function popupChoice(target: HTMLButtonElement) {
-  if (!modal) return;
+  if (!modal || busy) return;
+  if (target.dataset.day && timeDraft) {
+    timeDraft.day = target.dataset.day;
+    wheelValue("hour", timeDraft.hour);
+    return;
+  }
+  if (target.dataset.wheelKey) {
+    wheelValue(
+      target.dataset.wheelKey as "hour" | "minute",
+      Number(target.dataset.wheelValue),
+    );
+    return;
+  }
   if (target.dataset.action === "close-modal") {
     await invoke("close_popup");
     return;
   }
-  const choice: { token: number; kind: string; date?: string; due?: number } = {
+  const choice: PopupChoice = {
     token: popupToken,
     kind: target.dataset.action ?? "postpone",
     date: target.dataset.date,
   };
-  if (choice.kind === "choose-time") {
-    const input = document.getElementById("reminder-time") as HTMLInputElement;
-    if (!input.reportValidity()) return;
-    choice.due = Math.floor(new Date(input.value).getTime() / 1000);
+  if (choice.kind === "postpone-custom") {
+    choice.kind = "postpone";
+    choice.date = (
+      document.getElementById("postpone-date") as HTMLInputElement
+    ).value;
   }
-  await invoke("choose_popup", { choice });
-}
-async function receivePopupChoice(choice: {
-  token: number;
-  kind: string;
-  date?: string;
-  due?: number;
-}) {
-  if (!modal || choice.token !== popupToken || busy) return;
-  const id = modal.id;
-  modal = null;
+  if (choice.kind === "choose-time") choice.due = selectedDue();
+  if (!validateChoice(choice)) return;
+  busy = true;
   render();
+  try {
+    await invoke("choose_popup", { choice });
+  } catch (e) {
+    busy = false;
+    modalError = String(e);
+    render();
+  }
+}
+function validateChoice(choice: PopupChoice) {
+  let error = "";
+  if (
+    choice.kind === "postpone" &&
+    !futureDate(choice.date ?? "", dateKey(new Date()))
+  )
+    error =
+      snapshot.settings.language === "ko"
+        ? "오늘 이후의 날짜를 선택해주세요."
+        : "Choose a date after today.";
+  if (choice.kind === "choose-time" && !validReminder(choice.due ?? NaN))
+    error = t("timeHint");
+  if (error) {
+    modalError = error;
+    render();
+    return false;
+  }
+  return true;
+}
+async function finishModalChoice(choice: PopupChoice) {
+  if (!modal || choice.token !== popupToken || busy || !validateChoice(choice))
+    return false;
+  const id = modal.id;
+  let action: Action | undefined;
   switch (choice.kind) {
     case "confirm-delete":
-      if (id) await dispatch({ kind: "delete", id });
+      if (id) action = { kind: "delete", id };
       break;
     case "confirm-abandon":
-      await dispatch({ kind: "abandonRecovery" });
+      action = { kind: "abandonRecovery" };
       break;
     case "postpone":
       if (id && choice.date)
-        await dispatch({ kind: "postpone", id, date: choice.date });
+        action = { kind: "postpone", id, date: choice.date };
       break;
     case "choose-time":
       if (id && choice.due) {
-        if (view === "reminders") {
-          reminderDraft[id] = choice.due;
-          render();
-        } else
-          await dispatch({
-            kind: "reminders",
-            selections: { [id]: choice.due },
-          });
+        if (view === "reminders") reminderDraft[id] = choice.due;
+        else action = { kind: "reminders", selections: { [id]: choice.due } };
       }
       break;
     case "clear-reminder":
       if (id) {
-        if (view === "reminders") {
-          reminderDraft[id] = 0;
-          render();
-        } else await dispatch({ kind: "clearReminder", id });
+        if (view === "reminders") reminderDraft[id] = 0;
+        else action = { kind: "clearReminder", id };
       }
       break;
+    default:
+      return false;
+  }
+  modalError = "";
+  if (
+    action &&
+    !(await dispatch(action, (message) => {
+      modalError = message;
+    }))
+  )
+    return false;
+  modal = null;
+  timeDraft = null;
+  render();
+  return true;
+}
+async function receivePopupChoice(choice: PopupChoice) {
+  if (!modal || choice.token !== popupToken || busy) return;
+  const ok = await finishModalChoice(choice);
+  if (!ok && !preview)
+    await emitTo("popup", "popup-result", {
+      token: choice.token,
+      error: modalError || t("error"),
+    });
+}
+async function finishInline(): Promise<boolean> {
+  if (inlineCommit) return inlineCommit;
+  const input = document.getElementById(
+    editing ? "rename-input" : adding ? "add-input" : "",
+  ) as HTMLInputElement | null;
+  if (!input) return true;
+  const id = editing,
+    title = input.value.trim();
+  editing = null;
+  adding = false;
+  addText = "";
+  if (!title) {
+    render();
+    return true;
+  }
+  if (id && snapshot.tasks.find((t) => t.id === id)?.title === title) {
+    render();
+    return true;
+  }
+  inlineCommit = dispatch(
+    id ? { kind: "rename", id, title } : { kind: "add", title },
+  );
+  try {
+    return await inlineCommit;
+  } finally {
+    inlineCommit = null;
   }
 }
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    pointerPressed = true;
+    const active = document.activeElement;
+    const target = e.target as HTMLElement;
+    if (
+      active instanceof HTMLInputElement &&
+      active !== target &&
+      !target.closest("#add-form")
+    )
+      active.blur();
+  },
+  true,
+);
+document.addEventListener(
+  "pointerup",
+  () => {
+    pointerPressed = false;
+    setTimeout(() => {
+      if (pendingInline) {
+        pendingInline = false;
+        void finishInline();
+      }
+    }, 0);
+  },
+  true,
+);
+app.addEventListener("focusout", (e) => {
+  if (rendering) return;
+  const input = e.target as HTMLInputElement;
+  if (input.id === "add-input" || input.id === "rename-input") {
+    if (pointerPressed) pendingInline = true;
+    else void finishInline();
+  }
+});
+app.addEventListener(
+  "scroll",
+  (e) => {
+    const wheel = e.target as HTMLElement;
+    const key = wheel.dataset.wheel as "hour" | "minute" | undefined;
+    if (!key || !timeDraft || rendering) return;
+    clearTimeout(wheelTimers.get(key));
+    // Wait for snap settling so a fast wheel gesture selects its final value.
+    wheelTimers.set(
+      key,
+      setTimeout(() => {
+        if (!wheel.isConnected || !timeDraft) return;
+        const options = Array.from(
+          wheel.querySelectorAll<HTMLElement>("[data-wheel-value]"),
+        );
+        const index = Math.max(
+          0,
+          Math.min(options.length - 1, Math.round(wheel.scrollTop / 30)),
+        );
+        const value = Number(options[index]?.dataset.wheelValue);
+        if (Number.isFinite(value) && timeDraft[key] !== value)
+          wheelValue(key, value);
+      }, 120),
+    );
+  },
+  true,
+);
+app.addEventListener("keydown", (e) => {
+  const wheel = (e.target as HTMLElement).closest<HTMLElement>("[data-wheel]");
+  if (
+    !wheel ||
+    !timeDraft ||
+    !["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)
+  )
+    return;
+  e.preventDefault();
+  const key = wheel.dataset.wheel as "hour" | "minute";
+  const values = Array.from(
+    wheel.querySelectorAll<HTMLElement>("[data-wheel-value]"),
+  ).map((v) => Number(v.dataset.wheelValue));
+  const at = values.indexOf(timeDraft[key]);
+  const next =
+    e.key === "Home"
+      ? 0
+      : e.key === "End"
+        ? values.length - 1
+        : Math.max(
+            0,
+            Math.min(values.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)),
+          );
+  wheelValue(key, values[next]);
+});
 void start().catch((error) => {
   app.innerHTML = `<div class="startup-error"><h1>Tray Tasks</h1><p>${esc(String(error))}</p><button data-action="refresh">Retry</button></div>`;
 });

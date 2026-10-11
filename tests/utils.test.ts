@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { addDays, escapeHtml, moveTask, reminderBounds } from "../src/utils";
+import {
+  addDays,
+  escapeHtml,
+  moveTask,
+  reminderBounds,
+  reminderOptions,
+  validReminder,
+  futureDate,
+} from "../src/utils";
 import type { Task } from "../src/types";
 describe("calendar and safe rendering", () => {
   it("adds calendar days across leap years and year boundaries", () => {
@@ -40,5 +48,42 @@ describe("independent display order", () => {
   it("ignores stale or identical identifiers without losing tasks", () => {
     expect(moveTask(tasks, "missing", "a")).toEqual(["a", "child", "b"]);
     expect(moveTask(tasks, "a", "a")).toEqual(["a", "child", "b"]);
+  });
+});
+
+describe("reminder picker and postponement validation", () => {
+  const now = new Date(2026, 9, 11, 18, 32, 15);
+  it("hides past hours and minutes, while permitting all of tomorrow", () => {
+    expect(reminderOptions("2026-10-11", 18, now).hours[0]).toBe(18);
+    expect(reminderOptions("2026-10-11", 18, now).minutes[0]).toBe(33);
+    expect(reminderOptions("2026-10-12", 0, now).hours).toHaveLength(24);
+    expect(reminderOptions("2026-10-12", 0, now).minutes).toHaveLength(60);
+    expect(reminderOptions("2026-10-13", 0, now).hours).toEqual([]);
+  });
+  it("has no selectable minute left today just before midnight", () => {
+    const late = new Date(2026, 9, 11, 23, 59, 35);
+    expect(reminderOptions("2026-10-11", 23, late).hours).toEqual([]);
+    expect(reminderOptions("2026-10-12", 0, late).minutes[0]).toBe(0);
+  });
+  it("rechecks expiration and rejects a time beyond tomorrow", () => {
+    expect(
+      validReminder(new Date(2026, 9, 11, 18, 33).getTime() / 1000, now),
+    ).toBe(true);
+    expect(
+      validReminder(new Date(2026, 9, 11, 18, 32).getTime() / 1000, now),
+    ).toBe(false);
+    expect(
+      validReminder(new Date(2026, 9, 12, 23, 59).getTime() / 1000, now),
+    ).toBe(true);
+    expect(
+      validReminder(new Date(2026, 9, 13, 0, 0).getTime() / 1000, now),
+    ).toBe(false);
+    expect(validReminder(NaN, now)).toBe(false);
+  });
+  it("rejects past, same-day and nonexistent calendar dates", () => {
+    expect(futureDate("2026-10-10", "2026-10-11")).toBe(false);
+    expect(futureDate("2026-10-11", "2026-10-11")).toBe(false);
+    expect(futureDate("2026-02-30", "2026-02-01")).toBe(false);
+    expect(futureDate("2026-10-12", "2026-10-11")).toBe(true);
   });
 });

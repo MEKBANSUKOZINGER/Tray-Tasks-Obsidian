@@ -12,7 +12,7 @@ The app watches the vault and also refreshes once per second. It reads Obsidian 
 
 The parser recognizes standard unchecked/completed Markdown checkboxes and the app's postponed marker. Fenced code and frontmatter are excluded. Hidden comments identify tasks independently of title and line position. Missing and duplicate IDs are repaired.
 
-Each checkbox is independent. Indentation does not create app subtasks. Delete/move updates only the selected line and preserves other checkboxes and continuation text. Display order is stored separately; pointer capture on the stable list container lets rows be reordered during dragging without losing input capture.
+Each checkbox is independent. Indentation does not create app subtasks. Delete/move updates only the selected line and preserves other checkboxes and continuation text. Display order is stored separately; pointer capture on the stable list container lets rows be reordered during dragging without losing input capture. The provisional order remains visible while the backend saves; snapshot events are held during the save, and a failed save reloads authoritative state.
 
 Each note edit reads the latest contents, saves a backup, writes a same-folder temporary file and checks that the source has not changed before replacement. External editors do not participate in a shared lock; a short race between the final comparison and replacement remains possible.
 
@@ -28,7 +28,7 @@ Clearing a recovery record never deletes destination content. Inspect both notes
 
 ## Reminder scheduling
 
-Draft edits live in the UI until Apply. A zero timestamp in a selection represents a pending removal. The backend validates the complete batch before changing any reminder.
+The compact picker uses Today/Tomorrow buttons and hour/minute wheels. Past options are excluded and timestamps are checked again on save. Popup actions stay open until success, with validation and backend errors returned to the popup. Draft edits live in the UI until Apply. A zero timestamp in a selection represents a pending removal. The backend validates the complete batch before changing any reminder.
 
 Valid new times run from now through tomorrow at 23:59. Persisted reminders may outlive that range. Repeats stay anchored to the original due time. Restarting with overdue reminders schedules an immediate missed-reminder alert.
 

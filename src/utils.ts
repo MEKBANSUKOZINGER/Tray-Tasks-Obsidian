@@ -41,3 +41,36 @@ export function moveTask(
   rest.splice(rest.indexOf(toId) + Number(after), 0, fromId);
   return rest;
 }
+
+export function reminderOptions(day: string, hour: number, now = new Date()) {
+  const bounds = reminderBounds(now);
+  const min = new Date(bounds.min),
+    max = new Date(bounds.max);
+  const validDay = day === dateKey(now) || day === dateKey(max);
+  const hours = Array.from({ length: 24 }, (_, i) => i).filter((h) => {
+    const end = new Date(day + "T" + String(h).padStart(2, "0") + ":59");
+    return validDay && end >= min && end <= max;
+  });
+  const minutes = Array.from({ length: 60 }, (_, i) => i).filter((m) => {
+    const time = new Date(
+      day +
+        "T" +
+        String(hour).padStart(2, "0") +
+        ":" +
+        String(m).padStart(2, "0"),
+    );
+    return validDay && time >= min && time <= max;
+  });
+  return { hours, minutes };
+}
+export function validReminder(due: number, now = new Date()) {
+  const max = new Date(reminderBounds(now).max).getTime() / 1000;
+  return Number.isFinite(due) && due >= now.getTime() / 1000 && due <= max;
+}
+export function futureDate(day: string, today: string) {
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+    dateKey(new Date(day + "T12:00:00")) === day &&
+    day > today
+  );
+}

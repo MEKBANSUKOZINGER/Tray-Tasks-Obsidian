@@ -1,30 +1,37 @@
-# Verification — 0.5.0
+# Verification — 1.0.0
+
+1.0.0 designates the 0.5.1 behavior as the first release version. Existing native UI observations below were recorded for that implementation; version metadata, documentation and explicit native window icons were updated for 1.0.0. The old GetWindow-based test traversal failed once during this release check. It now uses EnumWindows, verifies API results and cleans up test windows on failure; 20 consecutive native regression runs passed (2,000 owner raises).
 
 Date: 2026-10-11. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
 
 ## Automated
 
-- Rust: 26 tests passing.
+- Rust: 27 tests passing.
 - TypeScript: 12 tests passing.
 - TypeScript/Vite production build and Windows NSIS installer generation passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
 - Dependency audit was clean at the previous verification; it was not rerun for this revision.
 
-Tests cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
+Tests additionally cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
 
 ## Manual observations
 
 Using a separate sample vault and isolated debug app data:
 
-Fourth revision:
+0.5.1 stacking fix:
+- The debug widget logged a native taskbar owner assignment; it remained docked at (1939, 1396).
+- Next changed selection with an unchanged Markdown SHA-256. The widget icon opened the list, and a second click closed it. The widget checkbox completed only the selected line.
+- Direct taskbar-click visual verification was unavailable through the automation surface. The native owner-order regression passed instead; real taskbar clicking, other topmost apps, Explorer restart, auto-hide and monitor/DPI changes remain acceptance checks.
+
+Fourth revision (0.5.0):
 - Primary taskbar bounds were (0, 1392)-(2560, 1440); notification area began at x=2227. The 280x40 widget docked at (1939, 1396), leaving 8px before system icons.
 - Transparent background, supplied icon and absence of a move handle were inspected.
 - Clicking the widget icon again hid the existing list.
 - One long-title native reminder measured 111px tall, with a compact acknowledgement beside the header and no timestamp below the task.
 - Acknowledgement cleared its reminder and left the Markdown checkbox unfinished.
 - Browser measurements confirmed a linear 397px movement over 28.357s (14px/s), transparent widget CSS and both new Korean heading labels.
-- Window stacking is reasserted without activation every 250ms; direct taskbar-click, Explorer restart, auto-hide and monitor/DPI scenarios still need real-world verification.
+- The old 250ms stacking correction was replaced in 0.5.1 after the user observed a flash when clicking the taskbar.
 
 Third revision:
 - Native widget appeared without opening the full list; Next changed selection with an unchanged Markdown SHA-256.
@@ -64,7 +71,7 @@ Browser preview additionally covered add, completion, reopening, renaming and ca
 
 Production executable and installer generation are checked separately from the debug UI. Installer generation does not prove that installation or upgrades have been tested.
 
-## Before 1.0.0
+## Remaining acceptance checks
 
 - Install and uninstall the packaged NSIS application on a clean Windows account.
 - Enable login startup, reboot, and confirm no list or Obsidian window flashes.

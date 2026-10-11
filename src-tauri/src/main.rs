@@ -29,6 +29,8 @@ struct AppState {
     engine: Mutex<Engine>,
     dirty: Arc<AtomicBool>,
     popup: Mutex<Option<serde_json::Value>>,
+    #[cfg(windows)]
+    _widget_guard: taskbar::TopmostGuard,
     widget_ready: AtomicBool,
     widget_position: Mutex<Option<[i32; 2]>>,
 }
@@ -465,6 +467,13 @@ fn main() {
             get_widget_icon
         ])
         .setup(|app| {
+            let app_icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("Missing app icon")?;
+            for window in app.webview_windows().values() {
+                window.set_icon(app_icon.clone())?;
+            }
             let data_dir = app.path().app_local_data_dir()?;
             #[cfg(debug_assertions)]
             let data_dir = std::env::var_os("TRAY_TASKS_DATA_DIR")
@@ -476,10 +485,20 @@ fn main() {
             let settings = engine.data.settings.clone();
             let dirty = Arc::new(AtomicBool::new(true));
             let saved_widget_position = engine.data.widget_position;
+            #[cfg(windows)]
+            let widget_guard = taskbar::TopmostGuard::install(
+                app.get_webview_window("widget")
+                    .ok_or("Missing widget")?
+                    .hwnd()?
+                    .0 as isize,
+            )
+            .map_err(std::io::Error::other)?;
             app.manage(AppState {
                 engine: Mutex::new(engine),
                 dirty: dirty.clone(),
                 popup: Mutex::new(None),
+                #[cfg(windows)]
+                _widget_guard: widget_guard,
                 widget_ready: AtomicBool::new(false),
                 widget_position: Mutex::new(saved_widget_position),
             });
@@ -565,7 +584,7 @@ fn main() {
                         let _ = widget_position(&widget_app);
                         #[cfg(windows)]
                         if let Ok(hwnd) = widget.hwnd() {
-                            taskbar::keep_above(hwnd.0 as isize);
+                            let _ = taskbar::bind_owner(hwnd.0 as isize);
                         }
                     }
                 } else {
@@ -744,6 +763,10 @@ fn sync_widget(app: &tauri::AppHandle) {
         if configured {
             let _ = widget_position(app);
             let _ = widget.show();
+            #[cfg(windows)]
+            if let Ok(hwnd) = widget.hwnd() {
+                taskbar::keep_above(hwnd.0 as isize);
+            }
         } else {
             let _ = widget.hide();
         }

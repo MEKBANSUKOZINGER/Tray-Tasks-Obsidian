@@ -24,6 +24,7 @@ let state: Snapshot = {
   recoveryPending: false,
   rollover: null,
   alerts: [],
+  widgetTaskId: "a",
   tasks: [
     {
       id: "a",
@@ -72,6 +73,12 @@ export function previewSnapshot(): Snapshot {
 }
 export function previewAction(action: Action): Snapshot {
   switch (action.kind) {
+    case "widgetNext": {
+      const tasks = state.tasks.filter((t) => !t.done);
+      const current = tasks.findIndex((t) => t.id === state.widgetTaskId);
+      state.widgetTaskId = tasks[(current + 1) % tasks.length]?.id ?? null;
+      break;
+    }
     case "configure":
       state.settings = action.settings;
       break;

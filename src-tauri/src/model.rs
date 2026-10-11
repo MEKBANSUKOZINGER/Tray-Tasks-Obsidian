@@ -94,6 +94,8 @@ pub struct Persisted {
     pub reminders: BTreeMap<String, Reminder>,
     pub rollover: Option<Rollover>,
     pub journal: Option<MoveJournal>,
+    pub widget_position: Option<[i32; 2]>,
+    pub widget_task_id: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +121,7 @@ pub struct Snapshot {
     pub settings: Settings,
     pub date: String,
     pub tasks: Vec<TaskView>,
+    pub widget_task_id: Option<String>,
     pub alerts: Vec<AlertView>,
     pub rollover: Option<Rollover>,
     pub recovery_pending: bool,

@@ -74,3 +74,17 @@ export function futureDate(day: string, today: string) {
     day > today
   );
 }
+
+export function calendarDays(
+  year: number,
+  month: number,
+): Array<string | null> {
+  const first = new Date(year, month, 1, 12),
+    last = new Date(year, month + 1, 0, 12);
+  return [
+    ...Array.from({ length: first.getDay() }, () => null),
+    ...Array.from({ length: last.getDate() }, (_, i) =>
+      dateKey(new Date(year, month, i + 1, 12)),
+    ),
+  ];
+}

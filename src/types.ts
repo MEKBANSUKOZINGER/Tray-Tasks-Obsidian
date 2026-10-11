@@ -31,6 +31,7 @@ export interface Snapshot {
   settings: Settings;
   date: string;
   tasks: Task[];
+  widgetTaskId: string | null;
   alerts: Alert[];
   rollover: { sourceDate: string; taskIds: string[] } | null;
   error: string | null;
@@ -40,6 +41,7 @@ export interface Snapshot {
   theme: "dark" | "light" | "system";
 }
 export type Action =
+  | { kind: "widgetNext" }
   | { kind: "configure"; settings: Settings }
   | { kind: "add"; title: string }
   | { kind: "rename"; id: string; title: string }

@@ -11,6 +11,7 @@ import {
   reminderOptions,
   validReminder,
   futureDate,
+  calendarDays,
   reminderBounds,
   moveTask,
 } from "./utils";
@@ -18,6 +19,10 @@ import { previewAction, previewSnapshot } from "./preview";
 const preview = new URLSearchParams(location.search).has("preview");
 const isReminder =
   new URLSearchParams(location.search).get("window") === "reminder";
+const isWidget =
+  new URLSearchParams(location.search).get("window") === "widget";
+const isSettings =
+  new URLSearchParams(location.search).get("window") === "settings";
 const isPopup = new URLSearchParams(location.search).get("window") === "popup";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 let snapshot: Snapshot;
@@ -32,6 +37,8 @@ type Modal = {
   date?: string;
 };
 let modal: Modal | null = null;
+let calendarOpen = false,
+  calendarMonth = dateKey(new Date()).slice(0, 7) + "-01";
 let coreConfirmed = false;
 let adding = false,
   addText = "",
@@ -110,9 +117,9 @@ const labels = {
       "옵시디언 → 설정 → 코어 플러그인 → 데일리 노트를 켜고, 날짜 형식을 YYYY-MM-DD로 설정해주세요.",
     coreConfirm: "데일리 노트를 켰고 날짜 형식과 저장 위치를 확인했어요.",
     language: "언어",
-    readHeading: "읽을 제목",
+    readHeading: "읽을 제목(아래부터 인식)",
     readHint: "비워두면 노트 전체의 체크박스를 읽어요.",
-    addHeading: "추가할 제목",
+    addHeading: "추가할 제목 (아래에 할 일 생성)",
     addHint: "비워두면 문서 맨 마지막에 추가해요.",
     rows: "한 화면에 표시할 개수",
     font: "목록 글자 크기",
@@ -140,7 +147,7 @@ const labels = {
       "복구 기록만 해제합니다. 이미 복사된 대상 항목은 남으므로 원본과 대상 노트를 확인해주세요.",
     error: "작업을 완료하지 못했어요",
     data: "저장·백업 폴더 열기",
-    version: "개발 버전 0.3.0",
+    version: "개발 버전 0.5.0",
     editHint: "우클릭하거나 F2를 눌러 이름 수정",
     count: "개",
   },
@@ -215,7 +222,7 @@ const labels = {
       "Only the recovery record is cleared. Already copied tasks remain. Check both notes.",
     error: "Couldn't complete the action",
     data: "Open storage and backups",
-    version: "Development build 0.3.0",
+    version: "Development build 0.5.0",
     editHint: "Right-click or press F2 to rename",
     count: "items",
   },
@@ -320,8 +327,8 @@ function taskRow(task: Task) {
     : task.reminderAt;
   return `<div class="task ${task.done ? "done" : ""}  ${pending ? "selected" : ""}" data-id="${esc(task.id)}">
 <button class="grip icon-button"  data-drag="${esc(task.id)}" aria-label="Reorder ${esc(task.title)}">${svg("grip")}</button>
-${view === "reminders" ? `<button class="selection-dot ${effective ? "active" : ""}" data-task-action="time" aria-label="${t("chooseTime")}">${svg("clock")}</button>` : `<input type="checkbox" data-check aria-label="${esc(task.title)}" ${task.done ? "checked" : ""}/>`}
-<div class="task-content">${editing === task.id ? `<input id="rename-input" class="rename-input" value="${esc(task.title)}" aria-label="${t("rename")}"/>` : `<button class="task-name" data-task-action="${view === "reminders" ? "time" : "edit"}" title="${t("editHint")}">${esc(task.title)}</button>`}
+${view === "reminders" ? `<button class="selection-dot ${effective ? "active" : ""}" data-task-action="time" aria-label="${t("chooseTime")}">${svg("check")}</button>` : `<input type="checkbox" data-check aria-label="${esc(task.title)}" ${task.done ? "checked" : ""}/>`}
+<div class="task-content">${editing === task.id ? `<input id="rename-input" class="rename-input" value="${esc(task.title)}" aria-label="${t("rename")}"/>` : `<button class="task-name" data-task-action="${view === "reminders" ? "time" : "edit"}" title="${t("editHint")}">${scrollingText(task.title)}</button>`}
 ${effective ? `<button class="task-time" data-task-action="time" title="${esc(fmtTime(effective!))}" aria-label="${esc(fmtTime(effective!))}">${svg("clock")}</button>` : ""}</div>
 ${view !== "reminders" ? `<div class="task-actions"><button class="icon-button danger" data-task-action="delete" title="${t("delete")}" aria-label="${t("delete")} ${esc(task.title)}">${svg("trash")}</button>${!task.done ? `<button class="icon-button" data-task-action="postpone" title="${t("postpone")}" aria-label="${t("postpone")} ${esc(task.title)}">${svg("next")}</button>` : ""}</div>` : ""}</div>`;
 }
@@ -368,7 +375,7 @@ ${field("readHeading", "readHeading")}${field("addHeading", "addHeading")}
 <label class="toggle"><input name="sound" type="checkbox" ${draft.sound ? "checked" : ""}/><span>${t("sound")}</span></label>
 <label class="toggle"><input name="autostart" type="checkbox" ${draft.autostart ? "checked" : ""}/><span>${t("autostart")}</span></label>
 <div class="field"><span>${t("icon")}</span><small>${esc(draft.iconPath || t("resetIcon"))}</small><div class="inline-buttons">${button("browse-icon", t("browse"), "folder")}${button("reset-icon", t("resetIcon"))}</div></div>
-${!first ? button("data", t("data"), "folder", "data-button") : ""}${button("taskbar-settings", snapshot.settings.language === "ko" ? "작업표시줄 아이콘 설정" : "Taskbar icon settings", undefined, "data-button")}
+
 <div class="settings-buttons">${!first ? button("back", t("cancel")) : ""}<button type="submit" class="primary">${first ? t("connect") : t("save")}</button></div></form>`;
 }
 function modalView() {
@@ -376,15 +383,15 @@ function modalView() {
   const task = snapshot.tasks.find((t) => t.id === modal!.id);
   let content = "";
   if (modal.kind === "delete")
-    content = `<h2>${t("deleteTitle")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-delete", t("delete"), undefined, "danger-solid")}</div>`;
+    content = `<h2>${t("deleteTitle")}</h2><div class="modal-task">${scrollingText(task?.title ?? "")}</div><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-delete", t("delete"), undefined, "danger-solid")}</div>`;
   if (modal.kind === "abandon")
     content = `<h2>${t("abandon")}</h2><p>${t("abandonNote")}</p><div class="modal-buttons">${button("close-modal", t("cancel"))}${button("confirm-abandon", t("apply"), undefined, "primary")}</div>`;
   if (modal.kind === "postpone") {
     const tomorrow = addDays(snapshot.date, 1),
       next = addDays(snapshot.date, 7);
-    content = `<h2>${t("postpone")}</h2><p class="modal-task">${esc(task?.title ?? "")}</p>
+    content = `<h2>${t("postpone")}</h2><div class="modal-task">${scrollingText(task?.title ?? "")}</div>
 <div class="postpone-shortcuts"><button data-date="${tomorrow}">${t("tomorrow")}</button><button data-date="${next}">${t("nextWeek")}</button></div>
-<div class="date-entry"><input aria-label="${t("otherDate")}" id="postpone-date" type="date" min="${tomorrow}" value="${modal.date ?? ""}"/>${button("postpone-custom", t("move"))}</div>
+<div class="date-entry"><input aria-label="${t("otherDate")}" id="postpone-date" type="text" placeholder="YYYY-MM-DD" value="${modal.date ?? ""}"/>${button("calendar-toggle", t("otherDate"), "calendar", "icon-button")}${button("postpone-custom", t("move"))}</div>${calendarView()}
 <div class="modal-buttons">${button("close-modal", t("cancel"))}</div>`;
   }
   if (modal.kind === "time") {
@@ -453,6 +460,8 @@ function selectedDue() {
   );
 }
 function openModal(next: Modal) {
+  calendarOpen = false;
+  calendarMonth = (next.date ?? addDays(snapshot.date, 1)).slice(0, 7) + "-01";
   modal = next;
   modalError = "";
   timeDraft = null;
@@ -463,7 +472,7 @@ function reminderView() {
   const pending = snapshot.rollover;
   return `<div class="reminder-shell">
 ${pending ? `<section class="rollover"><p>${t("rolloverBody")}</p><small>${pending.taskIds.length} ${t("count")} · ${pending.sourceDate}</small><div class="modal-buttons">${button("rollover-no", t("no"))}${button("rollover-yes", t("yes"), undefined, "primary")}</div></section>` : ""}
-${snapshot.alerts.length ? `<section class="alert-section"><h2>${snapshot.alerts.some((a) => a.overdue) ? t("overdue") : t("reminder")}</h2><div class="alert-list">${snapshot.alerts.map((a) => `<article class="alert-item"><span class="dot"></span><div><p>${esc(a.title)}</p><small>${esc(fmtTime(a.dueAt))}</small></div></article>`).join("")}</div>${button("acknowledge", t("acknowledge"), "check", "primary acknowledge")}</section>` : ""}
+${snapshot.alerts.length ? `<section class="alert-section"><div class="alert-header"><h2>${snapshot.alerts.some((a) => a.overdue) ? t("overdue") : t("reminder")}</h2>${button("acknowledge", t("acknowledge"), "check", "primary acknowledge")}</div><div class="alert-list">${snapshot.alerts.map((a) => `<article class="alert-item"><span class="dot"></span><div><p>${esc(a.title)}</p></div></article>`).join("")}</div></section>` : ""}
 ${!pending && !snapshot.alerts.length ? `<div class="empty"><h2>${t("empty")}</h2></div>` : ""}${snapshot.error ? `<p class="error">${esc(snapshot.error)}</p>` : ""}</div>`;
 }
 function captureDraft(form: HTMLFormElement) {
@@ -525,24 +534,34 @@ function render() {
         ? "dark"
         : "light"
       : snapshot.theme;
-  app.className = isPopup
-    ? "popup-app"
-    : isReminder
-      ? "notification-app"
-      : view === "settings"
-        ? "settings-app"
-        : "list-app";
+  app.className = isWidget
+    ? "widget-app"
+    : isSettings
+      ? "settings-app"
+      : isPopup
+        ? "popup-app"
+        : isReminder
+          ? "notification-app"
+          : view === "settings"
+            ? "settings-app"
+            : "list-app";
   document.body.classList.toggle("preview-mode", preview);
 
   app.innerHTML =
-    (isPopup
+    (isWidget
+      ? widgetView()
+      : isSettings
+        ? settingsView()
+        : isPopup
+          ? modalView()
+          : isReminder
+            ? reminderView()
+            : view === "settings"
+              ? settingsView()
+              : listView()) +
+    (preview && !isReminder && !isPopup && !isWidget && !isSettings
       ? modalView()
-      : isReminder
-        ? reminderView()
-        : view === "settings"
-          ? settingsView()
-          : listView()) +
-    (preview && !isReminder && !isPopup ? modalView() : "") +
+      : "") +
     (toast ? `<div class="toast" role="alert">${esc(toast)}</div>` : "");
   const list = app.querySelector(".task-list");
   if (list) list.scrollTop = scrollTop;
@@ -553,10 +572,14 @@ function render() {
       wheel.scrollTop = Array.from(wheel.children).indexOf(selected) * 30;
   });
   if (isPopup && modal) {
-    const height = app.querySelector<HTMLElement>(".modal")!.scrollHeight + 2;
+    const height = Math.ceil(
+      app.querySelector<HTMLElement>(".modal")!.getBoundingClientRect().height,
+    );
     if (height !== popupHeight) {
       popupHeight = height;
-      void invoke("resize_popup", { height }).catch((e) => console.error(e));
+      void invoke("resize_popup", { height, token: popupToken }).catch((e) =>
+        console.error(e),
+      );
     }
   }
   if (focusId) {
@@ -589,7 +612,20 @@ function render() {
     document.getElementById("add-input")?.focus();
     document.querySelector(".new-task")?.scrollIntoView({ block: "nearest" });
   }
-  if (!preview && !isReminder && !isPopup) {
+  if (isReminder && !preview) {
+    const shell = app.querySelector<HTMLElement>(".reminder-shell")!;
+    const height = Math.ceil(shell.getBoundingClientRect().height + 28);
+    void invoke("resize_reminder", { height }).catch(console.error);
+  }
+  updateMarquees();
+  if (isWidget) {
+    paintWidgetIcon();
+    if (!preview && !widgetInitialized) {
+      widgetInitialized = true;
+      void invoke("widget_ready");
+    }
+  }
+  if (!preview && !isReminder && !isPopup && !isWidget && !isSettings) {
     if (modal && modal !== openedModal) {
       openedModal = modal;
       popupToken++;
@@ -625,9 +661,7 @@ function render() {
               (app.querySelector<HTMLElement>(".error")?.getBoundingClientRect()
                 .height ?? 0),
           );
-    void invoke("resize_main", { height, settings: view === "settings" }).catch(
-      (e) => console.error(e),
-    );
+    void invoke("resize_main", { height }).catch((e) => console.error(e));
   }
   rendering = false;
 }
@@ -640,7 +674,8 @@ app.addEventListener("submit", async (e) => {
   if (form.id === "settings-form") {
     captureDraft(form);
     if (await dispatch({ kind: "configure", settings: draft! })) {
-      setView("tasks");
+      if (isSettings && !preview) await invoke("close_settings");
+      else setView("tasks");
     }
   }
 });
@@ -655,6 +690,14 @@ app.addEventListener("input", (e) => {
 app.addEventListener("change", async (e) => {
   if (inlineCommit) await inlineCommit;
   const input = e.target as HTMLInputElement;
+  if (input.matches("[data-widget-check]") && input.dataset.widgetId) {
+    await dispatch({
+      kind: "complete",
+      id: input.dataset.widgetId,
+      done: true,
+    });
+    return;
+  }
   const settingsForm = input.closest<HTMLFormElement>("#settings-form");
   if (settingsForm && draft) captureDraft(settingsForm);
   if (input.matches("[data-check]"))
@@ -819,7 +862,9 @@ app.addEventListener("pointerup", async (e) => {
     else render();
   }
 });
-app.addEventListener("pointercancel", cancelDrag);
+app.addEventListener("pointercancel", () => {
+  cancelDrag();
+});
 app.addEventListener("lostpointercapture", () => {
   if (drag) cancelDrag();
 });
@@ -838,6 +883,7 @@ app.addEventListener("click", async (e) => {
       openModal({ kind: "time", id: row.dataset.id });
     return;
   }
+  if (calendarAction(target)) return;
   if (isPopup) {
     await popupChoice(target);
     return;
@@ -884,11 +930,19 @@ app.addEventListener("click", async (e) => {
     case "taskbar-settings":
       if (!preview) await invoke("open_taskbar_settings");
       break;
+    case "widget-list":
+      if (!preview) await invoke("open_task_list");
+      break;
+    case "widget-next":
+      await dispatch({ kind: "widgetNext" });
+      break;
     case "settings":
-      setView("settings");
+      if (!preview) await invoke("open_settings");
+      else setView("settings");
       break;
     case "back":
-      setView("tasks");
+      if (isSettings && !preview) await invoke("close_settings");
+      else setView("tasks");
       break;
     case "completed":
       setView("completed");
@@ -1018,6 +1072,11 @@ app.addEventListener("click", async (e) => {
 });
 document.addEventListener("keydown", async (e) => {
   if (e.key === "Escape") {
+    if (isWidget) return;
+    if (isSettings && snapshot.settings.vaultPath && !preview) {
+      await invoke("close_settings");
+      return;
+    }
     if (drag) {
       cancelDrag();
       return;
@@ -1053,7 +1112,7 @@ async function initialSnapshot(): Promise<Snapshot> {
 }
 async function start() {
   snapshot = preview ? previewSnapshot() : await initialSnapshot();
-  if (!snapshot.settings.vaultPath) {
+  if (isSettings || (!snapshot.settings.vaultPath && preview)) {
     view = "settings";
     draft = structuredClone(snapshot.settings);
   }
@@ -1100,10 +1159,11 @@ async function start() {
         pendingSnapshot = event.payload;
         return;
       }
+      if (JSON.stringify(snapshot) === JSON.stringify(event.payload)) return;
       snapshot = event.payload;
       render();
     });
-    await listen("show-settings", () => setView("settings"));
+    if (isSettings) await listen("show-settings", () => setView("settings"));
     await listen("reset-view", () => {
       if (snapshot.settings.vaultPath) setView("tasks");
     });
@@ -1119,7 +1179,7 @@ async function start() {
         },
       );
     await listen<string>("app-error", (event) => notify(event.payload));
-    if (!isReminder && !isPopup)
+    if (!isReminder && !isPopup && !isWidget && !isSettings)
       await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
         if (!focused && !modal && !drag) void finishInline();
         if (
@@ -1130,7 +1190,7 @@ async function start() {
           !adding &&
           !drag
         )
-          void getCurrentWindow().hide();
+          void invoke("blur_task_list");
       });
   }
 }
@@ -1138,6 +1198,9 @@ async function start() {
 function applyPopup(context: PopupContext) {
   snapshot = context.snapshot;
   modal = context.modal;
+  popupHeight = 0;
+  calendarOpen = false;
+  calendarMonth = (modal.date ?? addDays(snapshot.date, 1)).slice(0, 7) + "-01";
   popupToken = context.token;
   view = context.view;
   reminderDraft = context.reminderDraft;
@@ -1376,6 +1439,124 @@ app.addEventListener("keydown", (e) => {
           );
   wheelValue(key, values[next]);
 });
+
+function scrollingText(title: string) {
+  return `<span class="marquee" title="${esc(title)}"><span class="marquee-text">${esc(title)}</span></span>`;
+}
+function updateMarquees() {
+  app.querySelectorAll<HTMLElement>(".marquee").forEach((box) => {
+    const text = box.querySelector<HTMLElement>(".marquee-text")!;
+    const distance = text.scrollWidth - box.clientWidth;
+    box.classList.toggle("overflowing", distance > 1);
+    box.style.setProperty("--marquee-distance", -Math.max(0, distance) + "px");
+    box.style.setProperty(
+      "--marquee-duration",
+      Math.max(0, distance) / 14 + "s",
+    );
+  });
+}
+function widgetView() {
+  const tasks = snapshot.tasks.filter((task) => !task.done);
+  const task =
+    tasks.find((task) => task.id === snapshot.widgetTaskId) ?? tasks[0];
+  return `<div class="widget-row">
+<button class="widget-icon" data-action="widget-list" aria-label="${t("today")}"><canvas id="widget-icon" width="32" height="32"></canvas></button>
+<input type="checkbox" data-widget-check aria-label="${esc(task?.title ?? t("empty"))}" ${!task ? "disabled" : ""} data-widget-id="${task?.id ?? ""}"/>
+<button class="widget-name" data-action="widget-list">${scrollingText(task?.title ?? t("empty"))}</button>
+<button class="icon-button widget-next" data-action="widget-next" aria-label="${snapshot.settings.language === "ko" ? "다음 할 일" : "Next task"}" ${!task ? "disabled" : ""}>${svg("next")}</button></div>`;
+}
+let iconPixels: { width: number; height: number; rgba: number[] } | null = null,
+  iconPath: string | undefined;
+let widgetInitialized = false;
+function paintWidgetIcon() {
+  const canvas = app.querySelector<HTMLCanvasElement>("#widget-icon");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = snapshot.accent;
+  ctx.fillRect(2, 2, 28, 28);
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(8, 16);
+  ctx.lineTo(13, 21);
+  ctx.lineTo(24, 10);
+  ctx.stroke();
+  if (iconPixels) {
+    const source = document.createElement("canvas");
+    source.width = iconPixels.width;
+    source.height = iconPixels.height;
+    source
+      .getContext("2d")!
+      .putImageData(
+        new ImageData(
+          new Uint8ClampedArray(iconPixels.rgba),
+          iconPixels.width,
+          iconPixels.height,
+        ),
+        0,
+        0,
+      );
+    ctx.clearRect(0, 0, 32, 32);
+    ctx.drawImage(source, 0, 0, 32, 32);
+  }
+  if (preview && !iconPixels) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, 32, 32);
+      ctx.drawImage(img, 0, 0, 32, 32);
+    };
+    img.src = "/icon.png";
+  }
+  if (!preview && iconPath !== snapshot.settings.iconPath) {
+    iconPath = snapshot.settings.iconPath;
+    void invoke<typeof iconPixels>("get_widget_icon")
+      .then((icon) => {
+        iconPixels = icon;
+        paintWidgetIcon();
+      })
+      .catch((e) => console.error(e));
+  }
+}
+function calendarView() {
+  if (!calendarOpen) return "";
+  const base = new Date(calendarMonth + "T12:00:00"),
+    year = base.getFullYear(),
+    month = base.getMonth();
+  const days = calendarDays(year, month),
+    today = dateKey(new Date());
+  const weekdays =
+    snapshot.settings.language === "ko"
+      ? ["일", "월", "화", "수", "목", "금", "토"]
+      : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const title = base.toLocaleDateString(
+    snapshot.settings.language === "ko" ? "ko-KR" : "en-US",
+    { year: "numeric", month: "long" },
+  );
+  return `<div class="calendar" role="group" aria-label="${t("otherDate")}"><div class="calendar-heading"><button data-month="-1" aria-label="${snapshot.settings.language === "ko" ? "이전 달" : "Previous month"}">${svg("back")}</button><strong>${esc(title)}</strong><button data-month="1" aria-label="${snapshot.settings.language === "ko" ? "다음 달" : "Next month"}">${svg("next")}</button></div><div class="calendar-grid">${weekdays.map((day) => `<span>${day}</span>`).join("")}${days.map((day) => (day ? `<button data-calendar-date="${day}" class="${modal?.date === day ? "primary" : ""}" ${day <= today ? "disabled" : ""} aria-label="${day}">${Number(day.slice(-2))}</button>` : "<span></span>")).join("")}</div></div>`;
+}
+function calendarAction(target: HTMLButtonElement) {
+  if (target.dataset.action === "calendar-toggle") {
+    calendarOpen = !calendarOpen;
+    render();
+    return true;
+  }
+  if (target.dataset.month) {
+    const base = new Date(calendarMonth + "T12:00:00");
+    base.setMonth(base.getMonth() + Number(target.dataset.month));
+    calendarMonth = dateKey(base);
+    render();
+    return true;
+  }
+  if (target.dataset.calendarDate && modal) {
+    modal.date = target.dataset.calendarDate;
+    calendarOpen = false;
+    modalError = "";
+    render();
+    return true;
+  }
+  return false;
+}
+
 void start().catch((error) => {
   app.innerHTML = `<div class="startup-error"><h1>Tray Tasks</h1><p>${esc(String(error))}</p><button data-action="refresh">Retry</button></div>`;
 });

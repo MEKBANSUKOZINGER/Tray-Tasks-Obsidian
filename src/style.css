@@ -687,3 +687,240 @@ button:disabled {
 .time-modal .modal-buttons button {
   font-size: 11px;
 }
+
+:root,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+#app {
+  border: 0;
+}
+#app.popup-app {
+  display: block;
+  overflow: hidden !important;
+}
+.modal {
+  overflow: visible;
+}
+.modal .modal-task {
+  display: block;
+  margin: 4px 0 8px;
+}
+.task-name {
+  flex: 0 1 auto;
+  display: flex;
+  overflow: hidden;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.task-content {
+  gap: 3px;
+}
+.task-time {
+  width: 16px;
+  height: 22px;
+}
+.marquee {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+}
+.marquee-text {
+  display: block;
+  width: max-content;
+}
+.marquee.overflowing .marquee-text {
+  animation: marquee-scroll var(--marquee-duration) linear 2s infinite alternate;
+}
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--marquee-distance));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee.overflowing .marquee-text {
+    animation: none;
+  }
+  .marquee {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+footer .icon-button:first-child,
+footer .icon-button:last-child {
+  flex: 0.45;
+}
+.selection-dot {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.selection-dot svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0;
+}
+.selection-dot.active svg {
+  opacity: 1;
+}
+.date-entry {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--secondary);
+  overflow: hidden;
+}
+.date-entry input {
+  width: auto;
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.date-entry > button:last-child {
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px;
+  font-size: 10px;
+  flex: 0 0 auto;
+}
+.date-entry .icon-button {
+  flex: 0 0 26px;
+}
+.calendar {
+  padding: 8px;
+  margin-top: 8px;
+  background: var(--secondary);
+  border-radius: 5px;
+}
+.calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.calendar-heading strong {
+  font-size: 12px;
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+.calendar-grid > span {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.calendar-grid > button {
+  font-size: 11px;
+  height: 28px;
+  padding: 0;
+}
+.widget-app {
+  border-radius: 8px;
+}
+.widget-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 4px 6px 4px 3px;
+  font-size: var(--task-font);
+}
+.widget-icon {
+  width: 24px;
+  height: 26px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.widget-icon canvas {
+  width: 18px;
+  height: 18px;
+}
+.widget-row > input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.widget-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  display: block;
+  text-align: left;
+  overflow: hidden;
+}
+.widget-next {
+  width: 22px;
+}
+.preview-mode #app.list-app {
+  width: 280px;
+}
+.preview-mode .list-app > .modal {
+  border: 0;
+  width: 100%;
+  left: 0;
+}
+.preview-mode #app.widget-app {
+  width: 280px;
+  height: 40px;
+}
+
+/* The taskbar shows through the docked widget; actions remain visible on hover. */
+#app.widget-app {
+  background: transparent;
+}
+.widget-row {
+  padding-left: 6px;
+}
+#app.notification-app {
+  display: block;
+  overflow: auto;
+  max-height: 650px;
+}
+.reminder-shell,
+.alert-section {
+  flex: none;
+  min-height: initial;
+}
+.alert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.alert-section h2 {
+  margin: 0;
+}
+.alert-list {
+  flex: none;
+  max-height: 440px;
+  overflow: auto;
+}
+.alert-section .acknowledge {
+  width: auto;
+  margin: 0;
+  padding: 4px 8px;
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.alert-section .acknowledge svg {
+  width: 12px;
+  height: 12px;
+}
+.alert-item p {
+  margin: 0;
+}

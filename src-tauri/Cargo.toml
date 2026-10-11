@@ -1,6 +1,6 @@
 [package]
 name = "tray-tasks"
-version = "0.3.0"
+version = "0.5.0"
 description = "Your Obsidian daily tasks, one click away."
 edition = "2021"
 rust-version = "1.90"
@@ -23,6 +23,9 @@ regex = "1"
 notify = "8"
 tempfile = "3"
 sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tempfile = "3"

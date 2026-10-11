@@ -7,6 +7,7 @@ import {
   reminderOptions,
   validReminder,
   futureDate,
+  calendarDays,
 } from "../src/utils";
 import type { Task } from "../src/types";
 describe("calendar and safe rendering", () => {
@@ -85,5 +86,18 @@ describe("reminder picker and postponement validation", () => {
     expect(futureDate("2026-10-11", "2026-10-11")).toBe(false);
     expect(futureDate("2026-02-30", "2026-02-01")).toBe(false);
     expect(futureDate("2026-10-12", "2026-10-11")).toBe(true);
+  });
+});
+
+describe("calendar month layout", () => {
+  it("places leap-year days under the correct weekday", () => {
+    const days = calendarDays(2024, 1);
+    expect(days.slice(0, 4)).toEqual([null, null, null, null]);
+    expect(days[4]).toBe("2024-02-01");
+    expect(days.at(-1)).toBe("2024-02-29");
+    expect(days.filter(Boolean)).toHaveLength(29);
+  });
+  it("normalizes adjacent months across a year boundary", () => {
+    expect(calendarDays(2026, 12).filter(Boolean)[0]).toBe("2027-01-01");
   });
 });

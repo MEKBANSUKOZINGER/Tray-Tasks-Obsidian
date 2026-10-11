@@ -195,6 +195,21 @@ impl Engine {
         self.displayed_ids.retain(|active| active != id);
         self.persist()
     }
+    pub fn widget_next(&mut self) -> Result<(), String> {
+        let snapshot = self.snapshot();
+        let ids: Vec<_> = snapshot
+            .tasks
+            .iter()
+            .filter(|t| !t.done)
+            .map(|t| t.id.clone())
+            .collect();
+        self.data.widget_task_id = snapshot
+            .widget_task_id
+            .as_ref()
+            .and_then(|id| ids.iter().position(|v| v == id))
+            .and_then(|i| ids.get((i + 1) % ids.len()).cloned());
+        self.persist()
+    }
     pub fn reorder(&mut self, ids: Vec<String>) -> Result<(), String> {
         let (_, text) = self.today_text()?;
         let actual: HashSet<_> = markdown::parse(&text, &self.data.settings.read_heading)
@@ -539,7 +554,15 @@ impl Engine {
             })
             .collect();
         let (font_family, accent, theme) = self.appearance();
+        let widget_task_id = self
+            .data
+            .widget_task_id
+            .as_ref()
+            .and_then(|id| tasks.iter().find(|t| !t.done && &t.id == id))
+            .or_else(|| tasks.iter().find(|t| !t.done))
+            .map(|t| t.id.clone());
         Snapshot {
+            widget_task_id,
             recovery_pending: self.data.journal.is_some(),
             settings: self.data.settings.clone(),
             date: self.today.to_string(),
@@ -861,5 +884,50 @@ mod tests {
     fn repeats_are_anchored_to_original_due_time() {
         assert_eq!(next_repeat(1000, 1060, 300), 1300);
         assert_eq!(next_repeat(1000, 1901, 300), 2200);
+    }
+
+    #[test]
+    fn widget_next_cycles_unfinished_display_order_without_editing_notes() {
+        let (_dir, mut e) = fixture();
+        e.add("A").unwrap();
+        e.add("B").unwrap();
+        e.add("C").unwrap();
+        let tasks = e.snapshot().tasks;
+        e.complete(&tasks[1].id, true).unwrap();
+        e.reorder(vec![
+            tasks[2].id.clone(),
+            tasks[1].id.clone(),
+            tasks[0].id.clone(),
+        ])
+        .unwrap();
+        let (path, before) = e.today_text().unwrap();
+        assert_eq!(e.snapshot().widget_task_id, Some(tasks[2].id.clone()));
+        e.widget_next().unwrap();
+        assert_eq!(e.snapshot().widget_task_id, Some(tasks[0].id.clone()));
+        e.widget_next().unwrap();
+        assert_eq!(e.snapshot().widget_task_id, Some(tasks[2].id.clone()));
+        assert_eq!(storage::read(&path).unwrap(), before);
+        let loaded: Persisted =
+            serde_json::from_str(&storage::read(&e.data_dir.join("state.json")).unwrap()).unwrap();
+        assert_eq!(loaded.widget_task_id, Some(tasks[2].id.clone()));
+        e.complete(&tasks[2].id, true).unwrap();
+        e.complete(&tasks[0].id, true).unwrap();
+        e.widget_next().unwrap();
+        assert!(e.snapshot().widget_task_id.is_none());
+    }
+    #[test]
+    fn older_state_has_optional_widget_defaults_and_positions_round_trip() {
+        let mut old: Persisted =
+            serde_json::from_str(r#"{"schemaVersion":1,"settings":{}}"#).unwrap();
+        assert!(old.widget_position.is_none());
+        assert!(old.widget_task_id.is_none());
+        old.widget_position = Some([-1200, 400]);
+        let saved = serde_json::to_string(&old).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Persisted>(&saved)
+                .unwrap()
+                .widget_position,
+            Some([-1200, 400])
+        );
     }
 }

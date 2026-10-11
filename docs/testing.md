@@ -1,12 +1,12 @@
-# Verification — 0.3.0
+# Verification — 0.5.0
 
 Date: 2026-10-11. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
 
 ## Automated
 
-- Rust: 21 tests passing.
-- TypeScript: 10 tests passing.
-- TypeScript/Vite production build passing.
+- Rust: 26 tests passing.
+- TypeScript: 12 tests passing.
+- TypeScript/Vite production build and Windows NSIS installer generation passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
 - Dependency audit was clean at the previous verification; it was not rerun for this revision.
@@ -16,6 +16,24 @@ Tests cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, i
 ## Manual observations
 
 Using a separate sample vault and isolated debug app data:
+
+Fourth revision:
+- Primary taskbar bounds were (0, 1392)-(2560, 1440); notification area began at x=2227. The 280x40 widget docked at (1939, 1396), leaving 8px before system icons.
+- Transparent background, supplied icon and absence of a move handle were inspected.
+- Clicking the widget icon again hid the existing list.
+- One long-title native reminder measured 111px tall, with a compact acknowledgement beside the header and no timestamp below the task.
+- Acknowledgement cleared its reminder and left the Markdown checkbox unfinished.
+- Browser measurements confirmed a linear 397px movement over 28.357s (14px/s), transparent widget CSS and both new Korean heading labels.
+- Window stacking is reasserted without activation every 250ms; direct taskbar-click, Explorer restart, auto-hide and monitor/DPI scenarios still need real-world verification.
+
+Third revision:
+- Native widget appeared without opening the full list; Next changed selection with an unchanged Markdown SHA-256.
+- Widget checkbox completed only its selected line.
+- Move handle changed physical position and persisted coordinates; restoration was retested after correcting startup events and taskbar-region bounds.
+- Deletion popup stayed 106px on reopen; postponement stayed 181px without an unwanted scrollbar.
+- Native app-styled calendar, joined date entry, 280px windows and horizontal title scrolling were inspected.
+- Separate settings remained visible after another window was focused; Cancel returned to the list.
+- Browser DOM checks confirmed overflowing title animations, a 3px title/clock gap, removal of the two settings shortcuts, calendar selection and inline past-date errors.
 
 Second revision:
 - Five tasks plus Add fit without a scrollbar; larger lists still scroll.

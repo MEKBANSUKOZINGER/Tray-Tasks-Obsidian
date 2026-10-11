@@ -2,11 +2,21 @@
 
 ## Desktop and storage
 
-Tauri owns the tray icon, hidden list window, nonmodal action popup, reminder window, Windows login startup and Obsidian URI opening. TypeScript renders local UI. Rust owns all filesystem edits and reminder state.
+Tauri owns the persistent widget, tray icon, hidden list window, separate settings window, nonmodal action popup, reminder window, Windows login startup and Obsidian URI opening. TypeScript renders local UI. Rust owns all filesystem edits and reminder state.
 
 The vault remains the task source. App-local state stores preferences, display order, reminder timestamps and pending moves. The daily filename uses the local calendar date. Folder paths must remain inside the selected vault, including existing symlink targets.
 
 The app watches the vault and also refreshes once per second. It reads Obsidian appearance preferences for font, accent color and light/dark mode, using Obsidian default base colors. Date rollover and reminders keep running while the list is hidden.
+
+## Widget and windows
+
+Widget position and selected task ID are optional persisted fields compatible with older state. Next cycles unfinished tasks in display order without editing Markdown; completion shares the list action. A 250ms maintenance loop reads the primary Shell_TrayWnd and TrayNotifyWnd bounds and docks the widget 8 logical pixels to the left, centered vertically on the taskbar. There is no widget drag handler. If these optional shell-class hints are unavailable, the saved horizontal position is clamped to the taskbar; a new state reserves 330 logical pixels on the right, matching the user's chosen 1950px left position on a 2560px screen. Old saved Y coordinates are ignored. No shell window is resized or reparented.
+
+On Windows, SetWindowPos with HWND_TOPMOST and SWP_NOACTIVATE reasserts widget stacking without stealing focus. Blur dismissal checks whether the pointer is over the widget, so a widget click can toggle an already visible list instead of reopening it after blur.
+
+Reminder height is measured from content. Its acknowledgement sits beside the header; due times remain in the scheduler but are omitted from alert rows. Long titles travel at 14 logical pixels per second with linear alternating animation; reduced-motion behavior remains available.
+
+Each popup context has a token. The frontend measures intrinsic content on every open; the backend validates the token and shows the popup after sizing. Settings use a separate decorated window and do not auto-hide on blur.
 
 ## Task identity and edits
 

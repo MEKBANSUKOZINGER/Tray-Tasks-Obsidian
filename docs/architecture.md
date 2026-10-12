@@ -6,6 +6,8 @@ Tauri owns the persistent widget, tray icon, hidden list window, separate settin
 
 The vault remains the task source. App-local state stores preferences, display order, reminder timestamps and pending moves. The daily filename uses the local calendar date. Folder paths must remain inside the selected vault, including existing symlink targets.
 
+Windows filesystem validation keeps canonical extended paths internally. The settings snapshot shows an ordinary drive or UNC path without changing persisted vault identity. The paths module converts supported verbatim prefixes before building an Obsidian open URI and percent-encodes its UTF-8 query value. Unsupported device paths and relative note paths are rejected rather than silently rewritten. The same display conversion is used when opening the app data directory externally.
+
 The app watches the vault and also refreshes once per second. It reads Obsidian appearance preferences for font, accent color and light/dark mode, using Obsidian default base colors. Date rollover and reminders keep running while the list is hidden.
 
 ## Widget and windows

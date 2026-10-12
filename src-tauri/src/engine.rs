@@ -564,7 +564,11 @@ impl Engine {
         Snapshot {
             widget_task_id,
             recovery_pending: self.data.journal.is_some(),
-            settings: self.data.settings.clone(),
+            settings: {
+                let mut settings = self.data.settings.clone();
+                settings.vault_path = crate::paths::display_path(Path::new(&settings.vault_path));
+                settings
+            },
             date: self.today.to_string(),
             tasks,
             alerts,
@@ -628,6 +632,32 @@ mod tests {
         };
         e.configure(s).unwrap();
         (dir, e)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_settings_display_and_resave_preserve_existing_vault_state() {
+        let (_dir, mut e) = fixture();
+        e.add("keep this task").unwrap();
+        let id = e.snapshot().tasks[0].id.clone();
+        let due = Local::now().timestamp() + 60;
+        e.set_reminders(BTreeMap::from([(id.clone(), due)]))
+            .unwrap();
+        e.data.orders.insert(e.today.to_string(), vec![id.clone()]);
+        e.data.widget_task_id = Some(id);
+        e.persist().unwrap();
+        let previous = serde_json::to_value(&e.data).unwrap();
+        let settings = e.snapshot().settings;
+        assert!(e.data.settings.vault_path.starts_with(r"\\?\"));
+        assert!(!settings.vault_path.starts_with(r"\\?\"));
+        assert_eq!(
+            Path::new(&settings.vault_path).canonicalize().unwrap(),
+            e.root().unwrap()
+        );
+        e.configure(settings).unwrap();
+        assert_eq!(serde_json::to_value(&e.data).unwrap(), previous);
+        let resumed = Engine::new(e.data_dir.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&resumed.data).unwrap(), previous);
     }
     #[test]
     fn postponing_one_item_preserves_indented_task_and_its_reminder() {

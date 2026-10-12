@@ -2,6 +2,7 @@
 mod engine;
 mod markdown;
 mod model;
+mod paths;
 mod storage;
 mod taskbar;
 
@@ -143,20 +144,9 @@ fn open_daily(app: tauri::AppHandle, state: State<AppState>) -> Result<(), Strin
         .lock()
         .map_err(|_| "App state is unavailable")?;
     let path = engine.ensure_note(engine.today)?;
-    let encoded = path
-        .to_string_lossy()
-        .as_bytes()
-        .iter()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || b"-._~".contains(b) {
-                (*b as char).to_string()
-            } else {
-                format!("%{b:02X}")
-            }
-        })
-        .collect::<String>();
+    let uri = paths::obsidian_uri(&path)?;
     app.opener()
-        .open_url(format!("obsidian://open?path={encoded}"), None::<&str>)
+        .open_url(uri, None::<&str>)
         .map_err(|e| e.to_string())
 }
 #[tauri::command]
@@ -166,7 +156,7 @@ fn open_app_data(app: tauri::AppHandle, state: State<AppState>) -> Result<(), St
         .lock()
         .map_err(|_| "App state is unavailable")?;
     app.opener()
-        .open_path(engine.data_dir.to_string_lossy(), None::<&str>)
+        .open_path(paths::display_path(&engine.data_dir), None::<&str>)
         .map_err(|e| e.to_string())
 }
 fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {

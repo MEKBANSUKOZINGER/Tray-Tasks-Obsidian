@@ -2,7 +2,7 @@
 
 **오늘의 할 일을 작업표시줄에서. · Your daily tasks, right on the taskbar.**
 
-**Version 1.0.0 · Windows x64**
+**Version 1.0.1 · Windows x64**
 
 [한국어](#한국어) · [English](#english)
 
@@ -28,7 +28,7 @@ Tray Tasks는 옵시디언 데일리 노트의 체크박스를 작업표시줄�
 
 ### 설치와 초기 설정
 
-설치 파일 이름은 **`Tray Tasks_1.0.0_x64-setup.exe`**입니다. 공개된 다운로드는 [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases)에서 확인하거나, 아래 개발 절차로 직접 빌드할 수 있습니다.
+설치 파일 이름은 **`Tray Tasks_1.0.1_x64-setup.exe`**입니다. 공개된 다운로드는 [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases)에서 확인하거나, 아래 개발 절차로 직접 빌드할 수 있습니다.
 
 1. Windows x64 설치 파일을 실행하고 Tray Tasks를 엽니다.
 2. 옵시디언에서 **설정 → 코어 플러그인 → 데일리 노트**를 켭니다. 날짜 형식은 **`YYYY-MM-DD`**로 설정합니다.
@@ -108,7 +108,7 @@ Tray Tasks는 옵시디언 데일리 노트의 체크박스를 작업표시줄�
 
 Windows x64 및 `YYYY-MM-DD.md` 데일리 노트를 지원합니다. macOS·Linux, 템플릿 실행, 앱 자체의 클라우드 동기화는 제공하지 않습니다. 옵시디언 Tasks/Reminder 플러그인이 없어도 사용할 수 있습니다.
 
-자동 숨김 작업표시줄, Explorer 재시작, 다중 모니터·배율 변경, 실제 재부팅 자동 실행과 설치 업그레이드의 검증 범위는 [검증 기록](docs/testing.md)에 정리되어 있습니다. Windows 창 순서 테스트를 포함한 자동 테스트는 **39개**입니다.
+자동 숨김 작업표시줄, Explorer 재시작, 다중 모니터·배율 변경, 실제 재부팅 자동 실행과 설치 업그레이드의 검증 범위는 [검증 기록](docs/testing.md)에 정리되어 있습니다. Windows 창 순서 테스트를 포함한 자동 테스트는 **45개**입니다.
 
 ### 개발하기
 
@@ -130,7 +130,7 @@ npm run build            # 프론트엔드 빌드
 npm run desktop:build    # Windows 설치 파일 생성
 ```
 
-설치 파일은 `src-tauri/target/release/bundle/nsis/`에 생성됩니다.
+설치 파일은 `src-tauri/target/release/bundle/nsis/`에 생성됩니다. `desktop:build` 완료 시 최신 설치 파일을 `artifacts/`에 복사하고 이전 버전은 `artifacts/Legacy/`로 옮깁니다. SHA-256 목록도 갱신하며, 해시가 같은 이전 빌드 복사본은 하나로 정리합니다.
 
 UI만 미리 보려면 `npm run dev`를 실행하고 `http://127.0.0.1:1420/?preview`를 엽니다. 미리보기는 예제 데이터를 사용하며 볼트 파일에 접근하지 않습니다. 독립된 개발 실행에서는 `TRAY_TASKS_DATA_DIR`로 테스트 상태 폴더를 지정할 수 있습니다. 이 환경 변수는 릴리스 빌드에서 무시됩니다.
 
@@ -158,7 +158,7 @@ The app works directly with your vault folder, so Obsidian can stay closed.
 
 ### Installation and first run
 
-The installer filename is **`Tray Tasks_1.0.0_x64-setup.exe`**. Check [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases) for published downloads, or build it locally using the development instructions below.
+The installer filename is **`Tray Tasks_1.0.1_x64-setup.exe`**. Check [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases) for published downloads, or build it locally using the development instructions below.
 
 1. Run the Windows x64 installer and open Tray Tasks.
 2. In Obsidian, enable **Settings → Core plugins → Daily notes**. Set the date format to **`YYYY-MM-DD`**.
@@ -238,7 +238,7 @@ Edits use a backup and an external-change check. Moves between dates use a recov
 
 Windows x64 and `YYYY-MM-DD.md` daily notes are supported. macOS, Linux, template execution and built-in cloud sync are not included. Obsidian Tasks/Reminder plugins are not required.
 
-See [verification notes](docs/testing.md) for coverage of auto-hide taskbars, Explorer restart, multiple monitors and DPI changes, reboot startup and installer upgrades. The automated suite contains **39 tests**, including Windows stacking checks.
+See [verification notes](docs/testing.md) for coverage of auto-hide taskbars, Explorer restart, multiple monitors and DPI changes, reboot startup and installer upgrades. The automated suite contains **45 tests**, including Windows stacking checks.
 
 ### Development
 
@@ -260,7 +260,7 @@ npm run build            # Frontend build
 npm run desktop:build    # Windows installer
 ```
 
-The installer is generated under `src-tauri/target/release/bundle/nsis/`.
+The installer is generated under `src-tauri/target/release/bundle/nsis/`. After `desktop:build`, the latest installer is copied to `artifacts/` and older versions are moved to `artifacts/Legacy/`. The SHA-256 manifest is refreshed and identical older build copies are consolidated.
 
 For a UI-only preview, run `npm run dev` and open `http://127.0.0.1:1420/?preview`. Preview mode uses sample data and never accesses a vault. Use `TRAY_TASKS_DATA_DIR` for an isolated state directory in debug builds. Release builds ignore this environment variable.
 

@@ -9,4 +9,6 @@ if (!$vsInstall) {throw "Visual Studio C++ tools were not found."}
 Set-Location -LiteralPath $taskRoot
 if ($Mode -eq "dev" -or $Mode -eq "build") { & npm.cmd run tauri -- $Mode }
 else { Set-Location -LiteralPath (Join-Path $taskRoot "src-tauri"); & cargo $Mode }
-exit $LASTEXITCODE
+$resultCode = $LASTEXITCODE
+if ($Mode -eq "build" -and $resultCode -eq 0) { & (Join-Path $PSScriptRoot "publish-installer.ps1") }
+exit $resultCode

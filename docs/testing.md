@@ -1,23 +1,30 @@
-# Verification — 1.0.0
+# Verification — 1.0.1
 
 1.0.0 designates the 0.5.1 behavior as the first release version. Existing native UI observations below were recorded for that implementation; version metadata, documentation and explicit native window icons were updated for 1.0.0. The old GetWindow-based test traversal failed once during this release check. It now uses EnumWindows, verifies API results and cleans up test windows on failure; 20 consecutive native regression runs passed (2,000 owner raises).
 
-Date: 2026-10-11. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
+Date: 2026-10-12. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
 
 ## Automated
 
-- Rust: 27 tests passing.
+- Rust: 33 tests passing.
 - TypeScript: 12 tests passing.
 - TypeScript/Vite production build and Windows NSIS installer generation passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
 - Dependency audit was clean at the previous verification; it was not rerun for this revision.
+- Installer archive script: all eight real installer hashes verified; rerun left one current and seven Legacy installers. Isolated fake-file checks passed for conflict refusal without moving originals, identical-copy consolidation, repeated runs and republishing a rebuilt current version.
 
-Tests additionally cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
+Tests additionally cover ordinary/verbatim drive path equivalence, UNC share preservation, UTF-8 and query delimiters, relative/device rejection and settings resave without losing reminders/order/selection. They cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
 
 ## Manual observations
 
-Using a separate sample vault and isolated debug app data:
+1.0.1 path fix:
+- Confirmed that saved vault paths and the failing Obsidian URI contained a Windows verbatim prefix. The current daily note existed and the Obsidian URI protocol was registered.
+- Sent an ordinary-path URI for the existing daily note; after dismissing the old native error dialog, the Obsidian window title changed to 2026-10-12 and no error dialog remained.
+- The existing note SHA-256 stayed unchanged. This was a direct URI check, not an installed 1.0.1 button/upgrade test.
+- New isolated engine regression confirms that the settings snapshot hides the prefix and resaving preserves persisted reminders, order and widget selection, including after restarting the engine.
+
+Earlier UI observations using a separate sample vault and isolated debug app data:
 
 0.5.1 stacking fix:
 - The debug widget logged a native taskbar owner assignment; it remained docked at (1939, 1396).

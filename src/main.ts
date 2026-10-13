@@ -142,12 +142,14 @@ const labels = {
     rolloverNote: "가져오면 전날 항목은 완료되고 예약된 알림은 유지돼요.",
     refresh: "새로고침",
     recover: "이동 복구 재시도",
+    recoveryNote:
+      "미루기가 끝나지 않았어요. 이동 복구 재시도를 누르면 이어서 처리해요.",
     abandon: "복구 기록 해제",
     abandonNote:
       "복구 기록만 해제합니다. 이미 복사된 대상 항목은 남으므로 원본과 대상 노트를 확인해주세요.",
     error: "작업을 완료하지 못했어요",
     data: "저장·백업 폴더 열기",
-    version: "버전 1.0.1",
+    version: "버전 1.0.2",
     editHint: "우클릭하거나 F2를 눌러 이름 수정",
     count: "개",
   },
@@ -217,12 +219,14 @@ const labels = {
       "Yesterday's items become completed. Reminder times stay the same.",
     refresh: "Refresh",
     recover: "Retry move recovery",
+    recoveryNote:
+      "A move is unfinished. Retry move recovery to continue safely.",
     abandon: "Clear recovery record",
     abandonNote:
       "Only the recovery record is cleared. Already copied tasks remain. Check both notes.",
     error: "Couldn't complete the action",
     data: "Open storage and backups",
-    version: "Version 1.0.1",
+    version: "Version 1.0.2",
     editHint: "Right-click or press F2 to rename",
     count: "items",
   },
@@ -279,6 +283,13 @@ async function dispatch(action: Action, onError?: (message: string) => void) {
       : await invoke<Snapshot>("action", { action });
     return true;
   } catch (e) {
+    if (!preview) {
+      try {
+        snapshot = await invoke<Snapshot>("get_snapshot");
+      } catch {
+        /* Keep the current view if refresh also fails. */
+      }
+    }
     if (onError) onError(String(e));
     else notify(String(e));
     return false;
@@ -316,8 +327,8 @@ function setView(next: typeof view) {
   render();
 }
 function errorBanner() {
-  return snapshot.error
-    ? `<aside class="error"><strong>${t("error")}</strong><p>${esc(snapshot.error)}</p><div>${button("refresh", t("refresh"))}${snapshot.recoveryPending ? button("recover", t("recover")) + button("abandon", t("abandon")) : ""}</div></aside>`
+  return snapshot.error || snapshot.recoveryPending
+    ? `<aside class="error"><strong>${t("error")}</strong><p>${esc(snapshot.error ?? t("recoveryNote"))}</p><div>${button("refresh", t("refresh"))}${snapshot.recoveryPending ? button("recover", t("recover")) + button("abandon", t("abandon")) : ""}</div></aside>`
     : "";
 }
 function taskRow(task: Task) {

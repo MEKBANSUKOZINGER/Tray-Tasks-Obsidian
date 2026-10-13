@@ -51,6 +51,13 @@ pub fn dock(
         ]
     }
 }
+pub fn covers_fullscreen(window: Rect, screen: Rect, framed: bool) -> bool {
+    !framed
+        && window.left <= screen.left
+        && window.top <= screen.top
+        && window.right >= screen.right
+        && window.bottom >= screen.bottom
+}
 #[cfg(windows)]
 mod native {
     use super::Rect;
@@ -191,7 +198,7 @@ mod native {
             if hwnd == 0 || changed == widget || IsWindowVisible(widget) == 0 {
                 return;
             }
-            if needs_raise(widget) {
+            if !foreground_fullscreen(hwnd) && needs_raise(widget) {
                 keep_above(hwnd);
             }
         });
@@ -291,6 +298,60 @@ mod native {
         }
     }
 
+    pub fn foreground_fullscreen(widget: isize) -> bool {
+        use windows_sys::Win32::{
+            Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+            },
+            UI::WindowsAndMessaging::{
+                GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, IsIconic, GWL_STYLE,
+                WS_CAPTION, WS_THICKFRAME,
+            },
+        };
+        unsafe {
+            let foreground = GetForegroundWindow();
+            if foreground.is_null()
+                || foreground == widget as HWND
+                || IsWindowVisible(foreground) == 0
+                || IsIconic(foreground) != 0
+            {
+                return false;
+            }
+            let mut class = [0u16; 128];
+            let count = GetClassNameW(foreground, class.as_mut_ptr(), class.len() as i32);
+            if matches!(
+                String::from_utf16_lossy(&class[..count.max(0) as usize]).as_str(),
+                "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
+            ) {
+                return false;
+            }
+            let Some(bounds) = rect(foreground) else {
+                return false;
+            };
+            let monitor = MonitorFromWindow(widget as HWND, MONITOR_DEFAULTTOPRIMARY);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(monitor, &mut info) == 0 {
+                return false;
+            }
+            let screen = info.rcMonitor;
+            let framed = (GetWindowLongPtrW(foreground, GWL_STYLE) as u32
+                & (WS_CAPTION | WS_THICKFRAME))
+                != 0;
+            super::covers_fullscreen(
+                bounds,
+                Rect {
+                    left: screen.left,
+                    top: screen.top,
+                    right: screen.right,
+                    bottom: screen.bottom,
+                },
+                framed,
+            )
+        }
+    }
     pub fn cursor() -> Option<[i32; 2]> {
         let mut p = POINT::default();
         if unsafe { GetCursorPos(&mut p) } == 0 {
@@ -301,11 +362,62 @@ mod native {
     }
 }
 #[cfg(windows)]
-pub use native::{bind_owner, cursor, keep_above, taskbar, TopmostGuard};
+pub use native::{bind_owner, cursor, foreground_fullscreen, keep_above, taskbar, TopmostGuard};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borderless_fullscreen_is_hidden_but_maximized_and_windowed_are_not() {
+        let monitor = Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert!(covers_fullscreen(monitor, monitor, false));
+        assert!(!covers_fullscreen(monitor, monitor, true));
+        assert!(!covers_fullscreen(
+            Rect {
+                bottom: 1040,
+                ..monitor
+            },
+            monitor,
+            false
+        ));
+        assert!(!covers_fullscreen(
+            Rect { left: 1, ..monitor },
+            monitor,
+            false
+        ));
+    }
+    #[test]
+    fn fullscreen_must_cover_the_widget_monitor() {
+        let primary = Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let secondary = Rect {
+            left: -1920,
+            top: 0,
+            right: 0,
+            bottom: 1080,
+        };
+        assert!(!covers_fullscreen(secondary, primary, false));
+        assert!(covers_fullscreen(secondary, secondary, false));
+        assert!(covers_fullscreen(
+            Rect {
+                left: -1920,
+                ..primary
+            },
+            primary,
+            false
+        ));
+    }
+
     #[cfg(windows)]
     #[test]
     fn owned_widget_stays_above_owner_without_a_timer() {

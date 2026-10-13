@@ -15,9 +15,15 @@ foreach ($directory in @($bundle, $artifacts, $legacy)) {
     }
 }
 New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+function Get-InstallerHash($path) {
+    $stream = [IO.File]::OpenRead($path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try { [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace("-", "") }
+    finally { $stream.Dispose(); $algorithm.Dispose() }
+}
 function Assert-SameInstaller($first, $second) {
-    if ((Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash -ne
-        (Get-FileHash -LiteralPath $second -Algorithm SHA256).Hash) {
+    if ((Get-InstallerHash $first) -ne
+        (Get-InstallerHash $second)) {
         throw "Different installers have the same filename: $first / $second"
     }
 }
@@ -46,10 +52,10 @@ Copy-Item -LiteralPath $source -Destination $current -Force
 Assert-SameInstaller $source $current
 $entries = @(foreach ($item in (Get-ChildItem -LiteralPath $legacy -File | Sort-Object Name)) {
     if ($item.Name -match '^Tray Tasks_\d+\.\d+\.\d+_x64-setup\.exe$') {
-        "$( (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash )  Legacy/$($item.Name)"
+        "$( (Get-InstallerHash $item.FullName) )  Legacy/$($item.Name)"
     }
 })
-$entries += "$( (Get-FileHash -LiteralPath $current -Algorithm SHA256).Hash )  $currentName"
+$entries += "$( (Get-InstallerHash $current) )  $currentName"
 [IO.File]::WriteAllLines((Join-Path $artifacts "SHA256SUMS.txt"), [string[]]$entries, (New-Object Text.UTF8Encoding($false)))
 Write-Host "Current installer: $current"
 Write-Host "Legacy installers: $legacy"

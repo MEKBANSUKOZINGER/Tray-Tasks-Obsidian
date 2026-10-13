@@ -39,6 +39,41 @@ pub fn relative_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
 pub fn read(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))
 }
+
+fn persist_temporary(
+    mut temporary: NamedTempFile,
+    path: &Path,
+    expected: Option<&str>,
+) -> Result<(), String> {
+    // Retry short Windows replacement conflicts without truncating the original.
+    let delays = [20, 40, 80, 160, 320, 320];
+    for attempt in 0..=delays.len() {
+        if let Some(expected) = expected {
+            if read(path)? != expected {
+                return Err("The note changed while saving; refresh and try again. Nothing was overwritten.".into());
+            }
+        }
+        match temporary.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(failure) => {
+                let retryable = cfg!(windows)
+                    && matches!(failure.error.raw_os_error(), Some(5 | 32 | 33))
+                    && !path
+                        .metadata()
+                        .is_ok_and(|m| m.is_dir() || m.permissions().readonly());
+                if !retryable || attempt == delays.len() {
+                    return Err(format!(
+                        "Cannot replace {}: {}. Close apps locking this file, check write permissions, then retry. The existing file was not truncated.",
+                        crate::paths::display_path(path), failure.error
+                    ));
+                }
+                temporary = failure.file;
+                std::thread::sleep(std::time::Duration::from_millis(delays[attempt]));
+            }
+        }
+    }
+    unreachable!()
+}
 pub fn write_atomic(path: &Path, data: &str) -> Result<(), String> {
     let parent = path.parent().ok_or("Invalid file path")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -47,8 +82,7 @@ pub fn write_atomic(path: &Path, data: &str) -> Result<(), String> {
         .write_all(data.as_bytes())
         .map_err(|e| e.to_string())?;
     temporary.as_file().sync_all().map_err(|e| e.to_string())?;
-    temporary.persist(path).map_err(|e| e.to_string())?;
-    Ok(())
+    persist_temporary(temporary, path, None)
 }
 pub fn checked_write(
     path: &Path,
@@ -85,8 +119,7 @@ pub fn checked_write(
             "The note changed while saving; refresh and try again. Nothing was overwritten.".into(),
         );
     }
-    temporary.persist(path).map_err(|e| e.to_string())?;
-    Ok(())
+    persist_temporary(temporary, path, Some(expected))
 }
 pub fn load(data_dir: &Path) -> Result<Persisted, String> {
     let path = data_dir.join("state.json");
@@ -107,6 +140,71 @@ pub fn save(data_dir: &Path, data: &Persisted) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    fn lock_replacement(path: &Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(3)
+            .open(path)
+            .unwrap()
+    }
+    #[cfg(windows)]
+    #[test]
+    fn temporary_windows_lock_retries_without_losing_the_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        fs::write(&path, "before").unwrap();
+        let lock = lock_replacement(&path);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            drop(lock);
+        });
+        checked_write(&path, "before", "after", dir.path()).unwrap();
+        release.join().unwrap();
+        assert_eq!(read(&path).unwrap(), "after");
+        let backups: Vec<_> = fs::read_dir(dir.path().join("backups")).unwrap().collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            read(&backups[0].as_ref().unwrap().path()).unwrap(),
+            "before"
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn lasting_windows_lock_reports_the_file_and_preserves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        fs::write(&path, "before").unwrap();
+        let _lock = lock_replacement(&path);
+        let error = checked_write(&path, "before", "after", dir.path()).unwrap_err();
+        assert!(
+            error.contains("note.md") && error.contains("retry"),
+            "{error}"
+        );
+        assert_eq!(read(&path).unwrap(), "before");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn external_edit_during_a_retry_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        fs::write(&path, "before").unwrap();
+        let mut lock = lock_replacement(&path);
+        let change = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            lock.set_len(0).unwrap();
+            lock.write_all(b"external").unwrap();
+            lock.sync_all().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        });
+        let error = checked_write(&path, "before", "after", dir.path()).unwrap_err();
+        change.join().unwrap();
+        assert!(error.contains("changed"), "{error}");
+        assert_eq!(read(&path).unwrap(), "external");
+    }
     #[test]
     fn rejects_parent_and_absolute_paths() {
         let temp = tempfile::tempdir().unwrap();

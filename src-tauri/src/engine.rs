@@ -157,7 +157,9 @@ impl Engine {
         F: FnOnce(&str) -> Result<String, String>,
     {
         if self.data.journal.is_some() {
-            return Err("A move needs recovery before editing more tasks.".into());
+            self.recover_move().map_err(|error| {
+                format!("Finish the pending move before editing tasks: {error}")
+            })?;
         }
         let (path, text) = self.today_text()?;
         let updated = edit(&text)?;
@@ -265,7 +267,10 @@ impl Engine {
         });
         // Recovery also supports journals created by earlier versions.
         let _ = mapping;
-        self.persist()?;
+        if let Err(error) = self.persist() {
+            self.data.journal = None;
+            return Err(error);
+        }
         self.recover_move()
     }
     pub fn recover_move(&mut self) -> Result<(), String> {
@@ -296,6 +301,8 @@ impl Engine {
             &j.source_after,
             &self.data_dir,
         )?;
+        let previous_data = self.data.clone();
+        let previous_display = self.displayed_ids.clone();
         let original_task = markdown::find(&j.expected_source, &j.original_id)?;
         let original = markdown::parse(&j.expected_source[original_task.block], "");
         let moved = markdown::parse(&j.target_block, "");
@@ -319,14 +326,23 @@ impl Engine {
         }
         self.displayed_ids.retain(|id| !id.is_empty());
         self.data.journal = None;
+        if let Err(error) = self.persist() {
+            self.data = previous_data;
+            self.displayed_ids = previous_display;
+            return Err(error);
+        }
         self.error = None;
-        self.persist()
+        Ok(())
     }
     pub fn abandon_recovery(&mut self) -> Result<(), String> {
         // Do not delete target content: a pending move may already have copied it.
-        self.data.journal = None;
+        let journal = self.data.journal.take();
+        if let Err(error) = self.persist() {
+            self.data.journal = journal;
+            return Err(error);
+        }
         self.error = None;
-        self.persist()
+        Ok(())
     }
     pub fn set_reminders(&mut self, selections: BTreeMap<String, i64>) -> Result<(), String> {
         let now = Local::now().timestamp();
@@ -634,6 +650,108 @@ mod tests {
         (dir, e)
     }
 
+    #[test]
+    fn failed_initial_journal_save_does_not_block_other_edits() {
+        let (_dir, mut e) = fixture();
+        e.add("a").unwrap();
+        let id = e.snapshot().tasks[0].id.clone();
+        let source = e.note_path(e.today).unwrap();
+        let before = storage::read(&source).unwrap();
+        e.persist().unwrap();
+        let previous = e.data_dir.join("state.previous.json");
+        fs::remove_file(&previous).unwrap();
+        fs::create_dir(&previous).unwrap();
+        let tomorrow = e.today.checked_add_days(Days::new(1)).unwrap();
+        assert!(e.postpone(&id, &tomorrow.to_string()).is_err());
+        assert!(e.data.journal.is_none());
+        assert!(storage::load(&e.data_dir).unwrap().journal.is_none());
+        assert_eq!(storage::read(&source).unwrap(), before);
+        fs::remove_dir(&previous).unwrap();
+        e.complete(&id, true).unwrap();
+        assert!(e.snapshot().tasks[0].done);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_move_is_visible_and_completion_recovers_once_after_unlock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (_dir, mut e) = fixture();
+        e.add("move me").unwrap();
+        e.add("complete me").unwrap();
+        let tasks = e.snapshot().tasks;
+        e.set_reminders(BTreeMap::from([(
+            tasks[0].id.clone(),
+            Local::now().timestamp() + 60,
+        )]))
+        .unwrap();
+        let tomorrow = e.today.checked_add_days(Days::new(1)).unwrap();
+        let target = e.ensure_note(tomorrow).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(3)
+            .open(&target)
+            .unwrap();
+        assert!(e.postpone(&tasks[0].id, &tomorrow.to_string()).is_err());
+        assert!(e.snapshot().recovery_pending);
+        assert!(storage::load(&e.data_dir).unwrap().journal.is_some());
+        assert_eq!(storage::read(&target).unwrap(), "");
+        drop(lock);
+        e.complete(&tasks[1].id, true).unwrap();
+        assert!(!e.snapshot().recovery_pending);
+        assert!(e
+            .snapshot()
+            .tasks
+            .iter()
+            .any(|t| t.id == tasks[1].id && t.done));
+        assert_eq!(
+            markdown::parse(&storage::read(&target).unwrap(), "").len(),
+            1
+        );
+        assert!(!e.data.reminders.contains_key(&tasks[0].id));
+        e.recover_move().unwrap();
+        assert_eq!(
+            markdown::parse(&storage::read(&target).unwrap(), "").len(),
+            1
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_final_state_save_keeps_recovery_and_reminders_until_committed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (_dir, mut e) = fixture();
+        e.add("a").unwrap();
+        let id = e.snapshot().tasks[0].id.clone();
+        e.set_reminders(BTreeMap::from([(
+            id.clone(),
+            Local::now().timestamp() + 60,
+        )]))
+        .unwrap();
+        let tomorrow = e.today.checked_add_days(Days::new(1)).unwrap();
+        let target = e.ensure_note(tomorrow).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(3)
+            .open(&target)
+            .unwrap();
+        assert!(e.postpone(&id, &tomorrow.to_string()).is_err());
+        drop(lock);
+        let previous = e.data_dir.join("state.previous.json");
+        fs::remove_file(&previous).unwrap();
+        fs::create_dir(&previous).unwrap();
+        assert!(e.recover_move().is_err());
+        assert!(e.data.journal.is_some() && e.data.reminders.contains_key(&id));
+        assert!(storage::load(&e.data_dir).unwrap().journal.is_some());
+        assert!(e.abandon_recovery().is_err());
+        assert!(e.data.journal.is_some());
+        fs::remove_dir(&previous).unwrap();
+        e.recover_move().unwrap();
+        assert!(e.data.journal.is_none() && !e.data.reminders.contains_key(&id));
+        assert_eq!(
+            markdown::parse(&storage::read(&target).unwrap(), "").len(),
+            1
+        );
+    }
     #[cfg(windows)]
     #[test]
     fn ordinary_settings_display_and_resave_preserve_existing_vault_state() {

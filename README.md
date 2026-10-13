@@ -2,7 +2,7 @@
 
 **오늘의 할 일을 작업표시줄에서. · Your daily tasks, right on the taskbar.**
 
-**Version 1.0.1 · Windows x64**
+**Version 1.0.2 · Windows x64**
 
 [한국어](#한국어) · [English](#english)
 
@@ -18,7 +18,7 @@ Tray Tasks는 옵시디언 데일리 노트의 체크박스를 작업표시줄�
 
 ### 주요 기능
 
-- **작업표시줄 위젯**: 알림 영역 바로 왼쪽에 미완료 할 일을 표시합니다. 작업표시줄보다 위에 유지되며 긴 제목은 천천히 가로로 스크롤됩니다.
+- **작업표시줄 위젯**: 알림 영역 바로 왼쪽에 미완료 할 일을 표시합니다. 작업표시줄보다 위에 유지되며 긴 제목은 천천히 가로로 스크롤됩니다. 같은 모니터의 활성 창이 전체화면이면 위젯을 숨기고, 해제되면 다시 표시합니다.
 - **할 일 관리**: 추가, 수정, 완료, 완료 취소, 삭제를 제공합니다. 들여쓴 체크박스도 각각 독립된 할 일로 다룹니다.
 - **목록 정렬**: 드래그로 표시 순서를 바꾸고 재시작 후에도 유지합니다. 데일리 노트의 원문 순서는 바꾸지 않습니다.
 - **미루기**: 내일, 다음 주 같은 요일, 직접 선택한 날짜로 옮깁니다. 원본에는 이력이 남고 해당 할 일의 리마인더는 해제됩니다.
@@ -28,7 +28,7 @@ Tray Tasks는 옵시디언 데일리 노트의 체크박스를 작업표시줄�
 
 ### 설치와 초기 설정
 
-설치 파일 이름은 **`Tray Tasks_1.0.1_x64-setup.exe`**입니다. 공개된 다운로드는 [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases)에서 확인하거나, 아래 개발 절차로 직접 빌드할 수 있습니다.
+설치 파일 이름은 **`Tray Tasks_1.0.2_x64-setup.exe`**입니다. 공개된 다운로드는 [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases)에서 확인하거나, 아래 개발 절차로 직접 빌드할 수 있습니다.
 
 1. Windows x64 설치 파일을 실행하고 Tray Tasks를 엽니다.
 2. 옵시디언에서 **설정 → 코어 플러그인 → 데일리 노트**를 켭니다. 날짜 형식은 **`YYYY-MM-DD`**로 설정합니다.
@@ -102,13 +102,13 @@ Tray Tasks는 옵시디언 데일리 노트의 체크박스를 작업표시줄�
 | 할 일과 완료·미루기 이력 | 선택한 볼트의 데일리 노트 |
 | 설정, 표시 순서, 리마인더, 편집 백업 | 일반적으로 `%LOCALAPPDATA%\com.traytasks.obsidian` |
 
-노트 편집 전 백업을 만들고 외부 변경을 확인합니다. 날짜를 옮기는 작업에는 복구 기록을 사용합니다. 볼트 동기화는 사용자가 사용하는 옵시디언 동기화나 다른 도구에서 관리하며, Tray Tasks는 충돌을 자동으로 병합하지 않습니다. 리마인더와 설정은 이 컴퓨터에 저장됩니다.
+노트 편집 전 백업을 만들고 외부 변경을 확인합니다. 날짜를 옮기는 작업에는 복구 기록을 사용합니다. 일시적인 파일 잠금은 재시도하며, 미완료 이동이 남으면 복구 버튼을 표시하고 다음 편집 전에 복구를 시도합니다. 볼트 동기화는 사용자가 사용하는 옵시디언 동기화나 다른 도구에서 관리하며, Tray Tasks는 충돌을 자동으로 병합하지 않습니다. 리마인더와 설정은 이 컴퓨터에 저장됩니다.
 
 ### 지원 범위
 
 Windows x64 및 `YYYY-MM-DD.md` 데일리 노트를 지원합니다. macOS·Linux, 템플릿 실행, 앱 자체의 클라우드 동기화는 제공하지 않습니다. 옵시디언 Tasks/Reminder 플러그인이 없어도 사용할 수 있습니다.
 
-자동 숨김 작업표시줄, Explorer 재시작, 다중 모니터·배율 변경, 실제 재부팅 자동 실행과 설치 업그레이드의 검증 범위는 [검증 기록](docs/testing.md)에 정리되어 있습니다. Windows 창 순서 테스트를 포함한 자동 테스트는 **45개**입니다.
+자동 숨김 작업표시줄, Explorer 재시작, 다중 모니터·배율 변경, 실제 재부팅 자동 실행과 설치 업그레이드의 검증 범위는 [검증 기록](docs/testing.md)에 정리되어 있습니다. Windows 창 순서 테스트를 포함한 자동 테스트는 **53개**입니다.
 
 ### 개발하기
 
@@ -148,7 +148,7 @@ The app works directly with your vault folder, so Obsidian can stay closed.
 
 ### Features
 
-- **Taskbar widget**: Show an unfinished task just left of the notification area. The widget stays above the taskbar, and long titles scroll slowly.
+- **Taskbar widget**: Show an unfinished task just left of the notification area. The widget stays above the taskbar, and long titles scroll slowly. It hides while the foreground app is fullscreen on the widget monitor and returns when fullscreen ends.
 - **Task management**: Add, rename, complete, reopen and delete tasks. Indented checkboxes are independent tasks.
 - **Display order**: Drag rows to reorder the list. Your order persists across restarts without rearranging the Markdown.
 - **Postponement**: Move a task to tomorrow, the same weekday next week, or a date you choose. The original keeps a history entry, and the task's reminder is cancelled.
@@ -158,7 +158,7 @@ The app works directly with your vault folder, so Obsidian can stay closed.
 
 ### Installation and first run
 
-The installer filename is **`Tray Tasks_1.0.1_x64-setup.exe`**. Check [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases) for published downloads, or build it locally using the development instructions below.
+The installer filename is **`Tray Tasks_1.0.2_x64-setup.exe`**. Check [Releases](https://github.com/MEKBANSUKOZINGER/Tray-Tasks-Obsidian/releases) for published downloads, or build it locally using the development instructions below.
 
 1. Run the Windows x64 installer and open Tray Tasks.
 2. In Obsidian, enable **Settings → Core plugins → Daily notes**. Set the date format to **`YYYY-MM-DD`**.
@@ -232,13 +232,13 @@ The comment is hidden in Obsidian's reading view. A manually postponed original 
 | Tasks, completion and postponement history | Daily notes in your selected vault |
 | Settings, display order, reminders and edit backups | Usually `%LOCALAPPDATA%\com.traytasks.obsidian` |
 
-Edits use a backup and an external-change check. Moves between dates use a recovery journal. Vault syncing is managed by your existing Obsidian sync service or other tools; Tray Tasks does not automatically merge conflicts. Reminders and settings stay on this computer.
+Edits use a backup and an external-change check. Moves between dates use a recovery journal. Temporary file locks are retried; unfinished moves show recovery controls and are retried before further edits. Vault syncing is managed by your existing Obsidian sync service or other tools; Tray Tasks does not automatically merge conflicts. Reminders and settings stay on this computer.
 
 ### Supported scope
 
 Windows x64 and `YYYY-MM-DD.md` daily notes are supported. macOS, Linux, template execution and built-in cloud sync are not included. Obsidian Tasks/Reminder plugins are not required.
 
-See [verification notes](docs/testing.md) for coverage of auto-hide taskbars, Explorer restart, multiple monitors and DPI changes, reboot startup and installer upgrades. The automated suite contains **45 tests**, including Windows stacking checks.
+See [verification notes](docs/testing.md) for coverage of auto-hide taskbars, Explorer restart, multiple monitors and DPI changes, reboot startup and installer upgrades. The automated suite contains **53 tests**, including Windows stacking checks.
 
 ### Development
 

@@ -570,6 +570,7 @@ fn main() {
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_millis(250));
                 if let Some(widget) = widget_app.get_webview_window("widget") {
+                    sync_widget(&widget_app);
                     if widget.is_visible().unwrap_or(false) {
                         let _ = widget_position(&widget_app);
                         #[cfg(windows)]
@@ -750,14 +751,23 @@ fn sync_widget(app: &tauri::AppHandle) {
             .engine
             .lock()
             .is_ok_and(|e| !e.data.settings.vault_path.is_empty());
-        if configured {
+        #[cfg(windows)]
+        let fullscreen = widget
+            .hwnd()
+            .is_ok_and(|hwnd| taskbar::foreground_fullscreen(hwnd.0 as isize));
+        #[cfg(not(windows))]
+        let fullscreen = false;
+        if configured && !fullscreen {
+            if widget.is_visible().unwrap_or(false) {
+                return;
+            }
             let _ = widget_position(app);
             let _ = widget.show();
             #[cfg(windows)]
             if let Ok(hwnd) = widget.hwnd() {
                 taskbar::keep_above(hwnd.0 as isize);
             }
-        } else {
+        } else if widget.is_visible().unwrap_or(false) {
             let _ = widget.hide();
         }
     }

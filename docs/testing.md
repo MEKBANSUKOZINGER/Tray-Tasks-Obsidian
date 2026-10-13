@@ -1,4 +1,4 @@
-# Verification — 1.0.1
+# Verification — 1.0.2
 
 1.0.0 designates the 0.5.1 behavior as the first release version. Existing native UI observations below were recorded for that implementation; version metadata, documentation and explicit native window icons were updated for 1.0.0. The old GetWindow-based test traversal failed once during this release check. It now uses EnumWindows, verifies API results and cleans up test windows on failure; 20 consecutive native regression runs passed (2,000 owner raises).
 
@@ -6,17 +6,25 @@ Date: 2026-10-12. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ t
 
 ## Automated
 
-- Rust: 33 tests passing.
+- Rust: 41 tests passing.
 - TypeScript: 12 tests passing.
 - TypeScript/Vite production build and Windows NSIS installer generation passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
 - Dependency audit was clean at the previous verification; it was not rerun for this revision.
-- Installer archive script: all eight real installer hashes verified; rerun left one current and seven Legacy installers. Isolated fake-file checks passed for conflict refusal without moving originals, identical-copy consolidation, repeated runs and republishing a rebuilt current version.
+- Installer archive script: 1.0.1 archive validation covered eight real hashes and seven Legacy installers. For 1.0.2, one current and eight Legacy installers are present with all nine hashes verified. Isolated fake-file checks passed for conflict refusal without moving originals, identical-copy consolidation, repeated runs and republishing a rebuilt current version.
 
-Tests additionally cover ordinary/verbatim drive path equivalence, UNC share preservation, UTF-8 and query delimiters, relative/device rejection and settings resave without losing reminders/order/selection. They cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
+New tests cover transient and persistent Windows sharing locks, external changes during retry, initial/final journal persistence failure, reminder preservation, recovery before completion, duplicate prevention and fullscreen geometry on the widget monitor. Tests additionally cover ordinary/verbatim drive path equivalence, UNC share preservation, UTF-8 and query delimiters, relative/device rejection and settings resave without losing reminders/order/selection. They cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
 
 ## Manual observations
+
+1.0.2 storage/recovery:
+- The saved journal described a move from 2026-10-12 to 2026-10-13; the source matched expectedSource and the target was empty. File attributes and ACLs were writable. The precise process or condition that caused the original access denial was not identified.
+- Backed up both notes and state files to an app-local repair-backups directory. An external recovery attempt was refused because the installed app was running; no live state was overwritten.
+- Retried the already requested Tomorrow action in the installed app using Computer Use. The pending journal cleared, the source became deferred, and the target contained exactly one entry with the journal new ID.
+- Installed 1.0.2 upgrade and visual YouTube/game fullscreen transitions remain acceptance checks. Automated tests cover fullscreen/windowed/maximized geometry and another monitor.
+- The installer built successfully, but initial post-build publishing could not find Get-FileHash in Windows PowerShell. Publishing now computes SHA-256 with .NET; the archive step succeeded after this fix.
+
 
 1.0.1 path fix:
 - Confirmed that saved vault paths and the failing Obsidian URI contained a Windows verbatim prefix. The current daily note existed and the Obsidian URI protocol was registered.

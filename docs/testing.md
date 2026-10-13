@@ -1,22 +1,32 @@
-# Verification — 1.0.2
+# Verification — 1.0.3
 
 1.0.0 designates the 0.5.1 behavior as the first release version. Existing native UI observations below were recorded for that implementation; version metadata, documentation and explicit native window icons were updated for 1.0.0. The old GetWindow-based test traversal failed once during this release check. It now uses EnumWindows, verifies API results and cleans up test windows on failure; 20 consecutive native regression runs passed (2,000 owner raises).
 
-Date: 2026-10-12. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
+Date: 2026-10-13. Windows x64, Node 24, Rust 1.99 MSVC, Visual Studio 2026 C++ tools and Windows SDK.
 
 ## Automated
 
-- Rust: 41 tests passing.
+- Rust: 47 tests passing.
 - TypeScript: 12 tests passing.
 - TypeScript/Vite production build and Windows NSIS installer generation passing.
 - Clippy with all targets and warnings denied passing.
 - Formatting checks passing.
 - Dependency audit was clean at the previous verification; it was not rerun for this revision.
-- Installer archive script: 1.0.1 archive validation covered eight real hashes and seven Legacy installers. For 1.0.2, one current and eight Legacy installers are present with all nine hashes verified. Isolated fake-file checks passed for conflict refusal without moving originals, identical-copy consolidation, repeated runs and republishing a rebuilt current version.
+- Installer archive script: 1.0.1 archive validation covered eight real hashes and seven Legacy installers. For 1.0.3, one current and nine Legacy installers are present; all ten hashes are verified. Isolated fake-file checks passed for conflict refusal without moving originals, identical-copy consolidation, repeated runs and republishing a rebuilt current version.
 
 New tests cover transient and persistent Windows sharing locks, external changes during retry, initial/final journal persistence failure, reminder preservation, recovery before completion, duplicate prevention and fullscreen geometry on the widget monitor. Tests additionally cover ordinary/verbatim drive path equivalence, UNC share preservation, UTF-8 and query delimiters, relative/device rejection and settings resave without losing reminders/order/selection. They cover Windows owner/widget stacking through 100 owner raises without a timer. They cover source preservation, UTF-8/CRLF, fence/frontmatter exclusion, IDs, independent moves/deletes and legacy subtree-journal recovery, path constraints, concurrent-change refusal, backups, idempotent move recovery, exact reminder transfer, draft removal batch atomicity, recurrence, failed settings changes and both reorder directions.
 
 ## Manual observations
+
+1.0.3 startup and widget:
+- Saved autostart was true but the matching HKCU Run entry was absent. StartupApproved was enabled. The previous LocalAppData installation path was not present, so this was not an installed-app reboot test.
+- Reviewed the installed auto-launch Windows backend: it formats the executable path without quotes. The new Windows registration code quotes the path and reconciles it on release startup.
+- Isolated registry tests used unique Tray Tasks test UUID entries, cleaned up after use: missing/stale entry repair, disabled-state preservation, explicit re-enable, removal, invalid-path refusal and spaces/Unicode/verbatim command quoting passed.
+- Browser widget preview measured 140x40px. In settings, changed width to 340, enabled icon-only mode, saved and reopened: width remained 340 and was disabled; returning to normal mode re-enabled it with the same value. English labels rendered correctly. Preview data was separate from the user vault.
+- Automated size tests cover the 40x40 icon-only dimensions and 120–600px bounds; an engine restart test preserves reminders/order/selection and the chosen widget settings.
+- Vite initially crashed with EBUSY while watching a newly copied installer. Generated artifacts and smoke directories are now ignored; the development server restarted successfully.
+- Real reboot/logon, installed 1.0.3 upgrade, native DPI-dependent resizing and fullscreen transitions remain acceptance checks.
+
 
 1.0.2 storage/recovery:
 - The saved journal described a move from 2026-10-12 to 2026-10-13; the source matched expectedSource and the target was empty. File attributes and ACLs were writable. The precise process or condition that caused the original access denial was not identified.

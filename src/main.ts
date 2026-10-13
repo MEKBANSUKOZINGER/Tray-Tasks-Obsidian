@@ -121,6 +121,10 @@ const labels = {
     readHint: "비워두면 노트 전체의 체크박스를 읽어요.",
     addHeading: "추가할 제목 (아래에 할 일 생성)",
     addHint: "비워두면 문서 맨 마지막에 추가해요.",
+    widgetWidth: "위젯 가로 크기 (px)",
+    widgetWidthHint:
+      "120~600px, 기본 140px. 아이콘 모드에서도 선택한 폭은 보관돼요.",
+    widgetIconOnly: "위젯에 아이콘만 표시",
     rows: "한 화면에 표시할 개수",
     font: "목록 글자 크기",
     reminderFont: "알림 글자 크기",
@@ -149,7 +153,7 @@ const labels = {
       "복구 기록만 해제합니다. 이미 복사된 대상 항목은 남으므로 원본과 대상 노트를 확인해주세요.",
     error: "작업을 완료하지 못했어요",
     data: "저장·백업 폴더 열기",
-    version: "버전 1.0.2",
+    version: "버전 1.0.3",
     editHint: "우클릭하거나 F2를 눌러 이름 수정",
     count: "개",
   },
@@ -196,6 +200,10 @@ const labels = {
     readHint: "Leave blank to read all checkboxes in the note.",
     addHeading: "Add under heading",
     addHint: "Leave blank to append to the end of the note.",
+    widgetWidth: "Widget width (px)",
+    widgetWidthHint:
+      "120–600px, default 140px. Your width is kept while using icon mode.",
+    widgetIconOnly: "Show only the widget icon",
     rows: "Visible task rows",
     font: "Task font size",
     reminderFont: "Reminder font size",
@@ -226,7 +234,7 @@ const labels = {
       "Only the recovery record is cleared. Already copied tasks remain. Check both notes.",
     error: "Couldn't complete the action",
     data: "Open storage and backups",
-    version: "Version 1.0.2",
+    version: "Version 1.0.3",
     editHint: "Right-click or press F2 to rename",
     count: "items",
   },
@@ -382,6 +390,7 @@ function settingsView() {
 ${field("dailyFolder", "folder")}<div class="setup-note">${svg("calendar")}<p>${t("coreHint")}</p></div>
 ${first ? `<label class="toggle core-confirm"><input name="coreConfirm" type="checkbox" ${coreConfirmed ? "checked" : ""} required/><span>${t("coreConfirm")}</span></label>` : ""}
 ${field("readHeading", "readHeading")}${field("addHeading", "addHeading")}
+<label class="field"><span>${t("widgetWidth")}</span><input id="setting-widgetWidth" name="widgetWidth" type="number" min="120" max="600" step="1" value="${draft.widgetWidth}" ${draft.widgetIconOnly ? "disabled" : ""}/><small>${t("widgetWidthHint")}</small></label><label class="toggle"><input name="widgetIconOnly" type="checkbox" ${draft.widgetIconOnly ? "checked" : ""}/><span>${t("widgetIconOnly")}</span></label>
 <div class="field-grid">${field("visibleRows", "rows", undefined, "number")}${field("fontSize", "font", undefined, "number")}${field("reminderFontSize", "reminderFont", undefined, "number")}${field("displaySeconds", "display", undefined, "number")}${field("repeatMinutes", "repeat", undefined, "number")}</div>
 <label class="toggle"><input name="sound" type="checkbox" ${draft.sound ? "checked" : ""}/><span>${t("sound")}</span></label>
 <label class="toggle"><input name="autostart" type="checkbox" ${draft.autostart ? "checked" : ""}/><span>${t("autostart")}</span></label>
@@ -502,15 +511,19 @@ function captureDraft(form: HTMLFormElement) {
   next.language = String(data.get("language")) as "ko" | "en";
   for (const key of [
     "visibleRows",
+    "widgetWidth",
     "fontSize",
     "reminderFontSize",
     "displaySeconds",
     "repeatMinutes",
-  ] as const)
-    next[key] = Number(data.get(key));
+  ] as const) {
+    const value = data.get(key);
+    if (value !== null) next[key] = Number(value);
+  }
   coreConfirmed = data.has("coreConfirm");
   next.sound = data.has("sound");
   next.autostart = data.has("autostart");
+  next.widgetIconOnly = data.has("widgetIconOnly");
   draft = next;
 }
 function render() {
@@ -537,6 +550,11 @@ function render() {
   document.documentElement.style.setProperty(
     "--reminder-font",
     snapshot.settings.reminderFontSize + "px",
+  );
+  document.documentElement.style.setProperty(
+    "--widget-width",
+    (snapshot.settings.widgetIconOnly ? 40 : snapshot.settings.widgetWidth) +
+      "px",
   );
   const systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
   document.documentElement.dataset.theme =
@@ -710,7 +728,10 @@ app.addEventListener("change", async (e) => {
     return;
   }
   const settingsForm = input.closest<HTMLFormElement>("#settings-form");
-  if (settingsForm && draft) captureDraft(settingsForm);
+  if (settingsForm && draft) {
+    captureDraft(settingsForm);
+    if (input.name === "widgetIconOnly") render();
+  }
   if (input.matches("[data-check]"))
     await dispatch({
       kind: "complete",
@@ -1470,6 +1491,8 @@ function widgetView() {
   const tasks = snapshot.tasks.filter((task) => !task.done);
   const task =
     tasks.find((task) => task.id === snapshot.widgetTaskId) ?? tasks[0];
+  if (snapshot.settings.widgetIconOnly)
+    return `<div class="widget-row icon-only"><button class="widget-icon" data-action="widget-list" aria-label="${t("today")}" title="${esc(task?.title ?? t("empty"))}"><canvas id="widget-icon" width="32" height="32"></canvas></button></div>`;
   return `<div class="widget-row">
 <button class="widget-icon" data-action="widget-list" aria-label="${t("today")}"><canvas id="widget-icon" width="32" height="32"></canvas></button>
 <input type="checkbox" data-widget-check aria-label="${esc(task?.title ?? t("empty"))}" ${!task ? "disabled" : ""} data-widget-id="${task?.id ?? ""}"/>

@@ -4257,7 +4257,7 @@ dependencies = [
 
 [[package]]
 name = "tray-tasks"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "chrono",
  "notify",
@@ -4274,6 +4274,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tempfile",
  "uuid",
+ "windows-registry",
  "windows-sys 0.61.2",
 ]
 

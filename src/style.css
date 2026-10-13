@@ -875,7 +875,7 @@ footer .icon-button:last-child {
   left: 0;
 }
 .preview-mode #app.widget-app {
-  width: 280px;
+  width: var(--widget-width, 140px);
   height: 40px;
 }
 
@@ -923,4 +923,20 @@ footer .icon-button:last-child {
 }
 .alert-item p {
   margin: 0;
+}
+
+.widget-row.icon-only {
+  justify-content: center;
+  padding: 0;
+}
+.widget-row.icon-only .widget-icon {
+  width: 32px;
+  height: 32px;
+}
+.widget-row.icon-only .widget-icon canvas {
+  width: 22px;
+  height: 22px;
+}
+.field input:disabled {
+  opacity: 0.5;
 }

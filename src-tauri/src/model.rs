@@ -10,6 +10,8 @@ pub struct Settings {
     pub add_heading: String,
     pub language: String,
     pub visible_rows: u32,
+    pub widget_width: u32,
+    pub widget_icon_only: bool,
     pub font_size: u32,
     pub reminder_font_size: u32,
     pub display_seconds: u32,
@@ -27,6 +29,8 @@ impl Default for Settings {
             add_heading: String::new(),
             language: "ko".into(),
             visible_rows: 6,
+            widget_width: 140,
+            widget_icon_only: false,
             font_size: 14,
             reminder_font_size: 15,
             display_seconds: 60,
@@ -38,11 +42,22 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    pub fn widget_size(&self) -> [u32; 2] {
+        [
+            if self.widget_icon_only {
+                40
+            } else {
+                self.widget_width
+            },
+            40,
+        ]
+    }
     pub fn validate(&self) -> Result<(), String> {
         if !["ko", "en"].contains(&self.language.as_str()) {
             return Err("Invalid language".into());
         }
-        if !(3..=12).contains(&self.visible_rows)
+        if !(120..=600).contains(&self.widget_width)
+            || !(3..=12).contains(&self.visible_rows)
             || !(11..=24).contains(&self.font_size)
             || !(11..=28).contains(&self.reminder_font_size)
             || !(5..=300).contains(&self.display_seconds)
@@ -129,4 +144,37 @@ pub struct Snapshot {
     pub font_family: String,
     pub accent: String,
     pub theme: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn old_preferences_get_a_half_width_widget_without_resetting_existing_fields() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"vaultPath":"C:\\Vault","autostart":true,"fontSize":17}"#)
+                .unwrap();
+        assert_eq!(settings.widget_size(), [140, 40]);
+        assert_eq!(settings.vault_path, r"C:\Vault");
+        assert!(settings.autostart);
+        assert_eq!(settings.font_size, 17);
+        assert!(!settings.widget_icon_only);
+    }
+    #[test]
+    fn widget_width_bounds_and_icon_mode_keep_the_saved_width() {
+        let mut settings = Settings::default();
+        for width in [120, 140, 280, 600] {
+            settings.widget_width = width;
+            assert!(settings.validate().is_ok());
+            assert_eq!(settings.widget_size(), [width, 40]);
+            settings.widget_icon_only = true;
+            assert_eq!(settings.widget_size(), [40, 40]);
+            settings.widget_icon_only = false;
+            assert_eq!(settings.widget_size(), [width, 40]);
+        }
+        for width in [0, 119, 601, u32::MAX] {
+            settings.widget_width = width;
+            assert!(settings.validate().is_err());
+        }
+    }
 }

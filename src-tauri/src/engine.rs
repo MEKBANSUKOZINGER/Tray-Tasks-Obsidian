@@ -651,6 +651,27 @@ mod tests {
     }
 
     #[test]
+    fn widget_preferences_survive_restart_without_losing_reminders_or_order() {
+        let (_dir, mut e) = fixture();
+        e.add("keep").unwrap();
+        let id = e.snapshot().tasks[0].id.clone();
+        let due = Local::now().timestamp() + 60;
+        e.set_reminders(BTreeMap::from([(id.clone(), due)]))
+            .unwrap();
+        e.reorder(vec![id.clone()]).unwrap();
+        e.data.widget_task_id = Some(id.clone());
+        let mut settings = e.data.settings.clone();
+        settings.widget_width = 340;
+        settings.widget_icon_only = true;
+        e.configure(settings).unwrap();
+        let resumed = Engine::new(e.data_dir.clone()).unwrap();
+        assert_eq!(resumed.data.settings.widget_width, 340);
+        assert_eq!(resumed.data.settings.widget_size(), [40, 40]);
+        assert_eq!(resumed.data.reminders[&id].due_at, due);
+        assert_eq!(resumed.data.orders[&e.today.to_string()], vec![id.clone()]);
+        assert_eq!(resumed.data.widget_task_id, Some(id));
+    }
+    #[test]
     fn failed_initial_journal_save_does_not_block_other_edits() {
         let (_dir, mut e) = fixture();
         e.add("a").unwrap();

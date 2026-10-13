@@ -5,6 +5,8 @@ export interface Settings {
   addHeading: string;
   language: "ko" | "en";
   visibleRows: number;
+  widgetWidth: number;
+  widgetIconOnly: boolean;
   fontSize: number;
   reminderFontSize: number;
   displaySeconds: number;

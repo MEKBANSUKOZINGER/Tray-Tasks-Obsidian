@@ -6,6 +6,8 @@ const settings: Settings = {
   addHeading: "",
   language: "ko",
   visibleRows: 6,
+  widgetWidth: 140,
+  widgetIconOnly: false,
   fontSize: 14,
   reminderFontSize: 15,
   displaySeconds: 60,

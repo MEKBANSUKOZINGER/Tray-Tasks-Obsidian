@@ -3,6 +3,7 @@ mod engine;
 mod markdown;
 mod model;
 mod paths;
+mod startup;
 mod storage;
 mod taskbar;
 
@@ -22,6 +23,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, State,
 };
+#[cfg(not(windows))]
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
 use tauri_plugin_positioner::{Position, WindowExt};
@@ -160,17 +162,35 @@ fn open_app_data(app: tauri::AppHandle, state: State<AppState>) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    // Isolated debug tests must not change the installed app's login preference.
-    #[cfg(debug_assertions)]
-    if std::env::var_os("TRAY_TASKS_DATA_DIR").is_some() {
+    apply_autostart_with_reason(app, enabled, true)
+}
+fn apply_autostart_with_reason(
+    app: &tauri::AppHandle,
+    enabled: bool,
+    explicit: bool,
+) -> Result<(), String> {
+    let _ = (app, enabled, explicit);
+    // Development builds must not replace the installed app login entry.
+    if cfg!(debug_assertions) {
         return Ok(());
     }
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
+    #[cfg(windows)]
+    {
+        startup::apply(
+            &std::env::current_exe().map_err(|e| e.to_string())?,
+            enabled,
+            explicit,
+        )
     }
-    .map_err(|e| e.to_string())
+    #[cfg(not(windows))]
+    {
+        if enabled {
+            app.autolaunch().enable()
+        } else {
+            app.autolaunch().disable()
+        }
+        .map_err(|e| e.to_string())
+    }
 }
 fn apply_icon(app: &tauri::AppHandle, settings: &Settings) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id("tray") {
@@ -429,6 +449,7 @@ fn main() {
         }))
         .plugin(
             tauri_plugin_autostart::Builder::new()
+                .app_name("Tray Tasks")
                 .args(["--background"])
                 .build(),
         )
@@ -470,7 +491,12 @@ fn main() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or(data_dir);
             std::fs::create_dir_all(&data_dir)?;
-            let engine = Engine::new(data_dir).map_err(std::io::Error::other)?;
+            let mut engine = Engine::new(data_dir).map_err(std::io::Error::other)?;
+            if let Err(error) =
+                apply_autostart_with_reason(app.handle(), engine.data.settings.autostart, false)
+            {
+                engine.error = Some(format!("Windows startup registration failed: {error}"));
+            }
             let first_run = engine.data.settings.vault_path.is_empty();
             let settings = engine.data.settings.clone();
             let dirty = Arc::new(AtomicBool::new(true));
@@ -699,8 +725,28 @@ fn widget_position(app: &tauri::AppHandle) -> Result<(), String> {
         .primary_monitor()
         .map_err(|e| e.to_string())?
         .ok_or("Missing monitor")?;
-    let size = widget.outer_size().map_err(|e| e.to_string())?;
+    let logical_size = state
+        .engine
+        .lock()
+        .map_err(|_| "App state unavailable")?
+        .data
+        .settings
+        .widget_size();
+    let current_size = widget.outer_size().map_err(|e| e.to_string())?;
     let scale = monitor.scale_factor();
+    let wanted = tauri::PhysicalSize::new(
+        (f64::from(logical_size[0]) * scale).round() as u32,
+        (f64::from(logical_size[1]) * scale).round() as u32,
+    );
+    if current_size != wanted {
+        widget
+            .set_size(tauri::LogicalSize::new(
+                f64::from(logical_size[0]),
+                f64::from(logical_size[1]),
+            ))
+            .map_err(|e| e.to_string())?;
+    }
+    let size = wanted;
     let gap = (8.0 * scale).round() as i32;
     let origin = monitor.position();
     let bounds = monitor.size();
